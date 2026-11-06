@@ -1,0 +1,36 @@
+version: "3"
+
+vars:
+  INFRA: "{{.ROOT_DIR}}/infra/cloudflare"
+  # Everything the local runner needs, read from terraform.tfvars.
+  LOCAL_INPUT_EXPR: >-
+    jsonencode({
+    config = { venues = var.venues, sessions = var.sessions, lookahead_days = var.lookahead_days, backoff_hours = var.backoff_hours },
+    telegram = { token = nonsensitive(var.telegram_bot_token), chat_id = nonsensitive(var.telegram_chat_id) }
+    })
+
+tasks:
+  build:
+    desc: Bundle src/index.ts into dist/index.js
+    sources: [src/**/*.ts, package.json, ../../packages/*/src/**/*.ts]
+    generates: [dist/index.js]
+    cmds:
+      - pnpm build
+
+  test:
+    desc: Unit tests (Alobo and Telegram mocked)
+    cmds:
+      - pnpm test
+
+  local:
+    desc: Run one check on this machine (set DRY_RUN=true to only print)
+    preconditions:
+      - sh: test -f "{{.INFRA}}/terraform.tfvars"
+        msg: "Missing infra/cloudflare/terraform.tfvars (cp terraform.tfvars.example terraform.tfvars)"
+    cmds:
+      - task: :infra:init
+      - task: :alobo:ensure-runtime
+      - |
+        export LOCAL_INPUT=$(echo '{{.LOCAL_INPUT_EXPR}}' | tofu -chdir="{{.INFRA}}" console \
+          | python3 -c 'import json,sys; print(json.loads(sys.stdin.read()))')
+        node scripts/local.ts --runtime "{{.INFRA}}/alobo_runtime.auto.tfvars.json" {{if .DRY_RUN}}--dry-run{{end}}

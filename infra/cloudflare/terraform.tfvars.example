@@ -1,0 +1,14 @@
+# cp terraform.tfvars.example terraform.tfvars   (terraform.tfvars is gitignored)
+
+cloudflare_account_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+telegram_bot_token    = "123456:ABC..."
+telegram_chat_id      = "-100xxxxxxxxxx"
+
+venues = ["an-khanh", "level-up"]
+
+sessions = [
+  { weekdays = ["tue", "thu"], from = "18:00", to = "21:00", duration_minutes = 120, courts = 2 },
+]
+
+lookahead_days = 7
+# crons = ["*/30 0-16 * * *"]   # UTC → 07:00–23:00 Vietnam time

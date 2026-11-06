@@ -1,0 +1,65 @@
+version: "3"
+
+tasks:
+  check:
+    internal: true
+    preconditions:
+      - sh: test -n "$CLOUDFLARE_API_TOKEN"
+        msg: "Missing CLOUDFLARE_API_TOKEN (put it in .env at the repo root)"
+      - sh: test -f terraform.tfvars
+        msg: "Missing infra/cloudflare/terraform.tfvars (cp terraform.tfvars.example terraform.tfvars)"
+
+  init:
+    desc: tofu init (first run only)
+    status:
+      - test -d .terraform
+    cmds:
+      - tofu init -input=false
+
+  validate:
+    desc: tofu fmt check + validate
+    cmds:
+      - task: :worker:build
+      - task: init
+      - tofu fmt -check -diff
+      - tofu validate
+
+  deploy:
+    desc: Refresh the Alobo key, build the worker, tofu apply -auto-approve
+    cmds:
+      - task: check
+      - task: init
+      - task: :alobo:fetch-runtime
+      - task: :worker:build
+      - tofu apply -auto-approve -input=false
+
+  destroy:
+    desc: tofu destroy -auto-approve
+    cmds:
+      - task: check
+      - task: init
+      - task: :worker:build # main.tf reads dist/index.js even when destroying
+      - tofu destroy -auto-approve -input=false
+
+  run:
+    desc: POST https://<worker>.<account-subdomain>.workers.dev/run
+    cmds:
+      - task: check
+      - |
+        ACC=$(echo 'var.cloudflare_account_id' | tofu console | tr -d '"')
+        SUB=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+          "https://api.cloudflare.com/client/v4/accounts/$ACC/workers/subdomain" \
+          | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["subdomain"])')
+        NAME=$(tofu output -raw worker_name)
+        TOKEN=$(tofu output -raw run_token)
+        curl -fsS -X POST -H "Authorization: Bearer $TOKEN" "https://$NAME.$SUB.workers.dev/run" | python3 -m json.tool
+
+  status:
+    desc: Read the "state" key from KV
+    cmds:
+      - task: check
+      - |
+        ACC=$(echo 'var.cloudflare_account_id' | tofu console | tr -d '"')
+        NS=$(tofu state show -no-color cloudflare_workers_kv_namespace.state | awk -F'"' '/^ *id *=/{print $2; exit}')
+        curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+          "https://api.cloudflare.com/client/v4/accounts/$ACC/storage/kv/namespaces/$NS/values/state" | python3 -m json.tool

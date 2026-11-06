@@ -1,0 +1,22 @@
+version: "3"
+
+vars:
+  OUT: "{{.ROOT_DIR}}/infra/cloudflare/alobo_runtime.auto.tfvars.json"
+
+tasks:
+  fetch-runtime:
+    desc: Extract the current Alobo frontend version, response key, and salt
+    cmds:
+      - node src/fetch-runtime.ts --out "{{.OUT}}"
+
+  ensure-runtime:
+    internal: true
+    status:
+      - test -f "{{.OUT}}"
+    cmds:
+      - task: fetch-runtime
+
+  test:
+    desc: Unit tests
+    cmds:
+      - pnpm test

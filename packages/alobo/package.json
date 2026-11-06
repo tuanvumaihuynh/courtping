@@ -1,0 +1,13 @@
+{
+  "name": "@courtping/alobo",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run",
+    "fetch-runtime": "node src/fetch-runtime.ts"
+  }
+}

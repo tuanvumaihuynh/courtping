@@ -1,0 +1,13 @@
+.env
+.task/
+.DS_Store
+node_modules/
+dist/
+.state/
+
+# OpenTofu
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/terraform.tfvars
+**/alobo_runtime.auto.tfvars.json*

@@ -1,0 +1,14 @@
+{
+  "name": "@courtping/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --format=esm --platform=neutral --target=es2024 --outfile=dist/index.js",
+    "typecheck": "tsc -p .",
+    "test": "vitest run",
+    "local": "node scripts/local.ts"
+  },
+  "dependencies": {
+    "@courtping/alobo": "workspace:*"
+  }
+}

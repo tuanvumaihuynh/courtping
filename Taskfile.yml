@@ -1,0 +1,90 @@
+# https://taskfile.dev — run `task` to list commands
+version: "3"
+
+# CLOUDFLARE_API_TOKEN goes in .env at the repo root (gitignored).
+dotenv: [".env"]
+
+includes:
+  alobo:
+    taskfile: packages/alobo
+    dir: packages/alobo
+  worker:
+    taskfile: apps/worker
+    dir: apps/worker
+  infra:
+    taskfile: infra/cloudflare
+    dir: infra/cloudflare
+
+tasks:
+  default:
+    silent: true
+    cmds:
+      - task --list
+
+  node-version:
+    internal: true
+    silent: true
+    preconditions:
+      - sh: "node -e 'process.exit(+process.versions.node.split(`.`)[0] >= 26 ? 0 : 1)'"
+        msg: "Node 26+ required. Run `nvm use` in the repo root (see .nvmrc)."
+
+  install:
+    desc: Install dependencies (pnpm)
+    deps: [node-version]
+    sources: [package.json, pnpm-lock.yaml, apps/*/package.json, packages/*/package.json]
+    cmds:
+      - pnpm install --frozen-lockfile
+
+  build:
+    desc: Bundle the worker
+    deps: [install]
+    cmds:
+      - task: worker:build
+
+  typecheck:
+    desc: Type-check every package
+    deps: [install]
+    cmds:
+      - pnpm -r typecheck
+
+  test:
+    desc: Type-check, unit tests, and OpenTofu validation
+    deps: [install]
+    cmds:
+      - pnpm -r typecheck
+      - pnpm -r test
+      - task: infra:validate
+
+  dry-run:
+    desc: Run one check locally against real Alobo; print messages, send nothing
+    deps: [install]
+    cmds:
+      - task: worker:local
+        vars: { DRY_RUN: "true" }
+
+  local:
+    desc: Run one check locally and send to Telegram (state in apps/worker/.state)
+    deps: [install]
+    cmds:
+      - task: worker:local
+
+  deploy:
+    desc: Refresh the Alobo key, build, and apply Worker + KV + cron (no prompt)
+    deps: [install]
+    cmds:
+      - task: infra:deploy
+
+  destroy:
+    desc: Delete Worker, KV, and cron from Cloudflare (no prompt)
+    cmds:
+      - task: infra:destroy
+
+  run:
+    desc: Trigger the deployed Worker now (sends to Telegram)
+    cmds:
+      - task: infra:run
+
+  status:
+    desc: Show the bot state stored in KV
+    cmds:
+      - task: infra:status
