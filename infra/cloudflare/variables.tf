@@ -54,6 +54,12 @@ variable "lookahead_days" {
   default = 7
 }
 
+variable "preferred_start" {
+  type        = string
+  default     = null
+  description = "Start time (HH:MM) to list first and highlight in messages, e.g. \"19:00\". Null disables it."
+}
+
 variable "backoff_hours" {
   type        = number
   default     = 6

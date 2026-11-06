@@ -31,20 +31,43 @@ export async function sendTelegram(
   if (!res.ok || !body.ok) throw new AppError("telegram_error", `Telegram ${res.status}: ${body.description ?? ""}`);
 }
 
-/** One block per venue and day, listing every newly free window. */
-export function formatVenueDay(matches: Match[]): string {
+const startsAt = (m: Match, time: string | null | undefined) => time != null && hhmm(m.start) === time;
+
+/** One block per venue and day, listing every newly free window. Windows at `preferredStart` are highlighted. */
+export function formatVenueDay(matches: Match[], preferredStart?: string | null): string {
   const sorted = [...matches].sort((a, b) => a.start - b.start);
   const { venue, start } = sorted[0]!;
   const lines = [`🏸 <b>${escapeHtml(venue.name)}</b> · ${WEEKDAY_NAMES[weekday(start)]} ${ddmm(start)}`];
   for (const m of sorted) {
-    lines.push(`${hhmm(m.start)}–${hhmm(m.end)} · ${m.courts.length} sân: ${escapeHtml(m.courts.join(", "))}`);
+    const line = `${hhmm(m.start)}–${hhmm(m.end)} · ${m.courts.length} sân: ${escapeHtml(m.courts.join(", "))}`;
+    lines.push(startsAt(m, preferredStart) ? `⭐ <b>${line}</b>` : line);
   }
   if (venue.address) lines.push(escapeHtml(venue.address));
   lines.push(`<a href="${bookingUrl(venue.id)}">Đặt trên Alobo</a>`);
   return lines.join("\n");
 }
 
-export function formatNewSlots(blocks: string[], checkedAt: number): string[] {
+/**
+ * Messages for newly free slots, one block per venue and day (`groups` in day order).
+ * With `preferredStart`, venue-days that have a window starting then come first under their own heading.
+ */
+export function formatNewSlots(groups: Match[][], checkedAt: number, preferredStart?: string | null): string[] {
+  const preferred = groups.filter((g) => g.some((m) => startsAt(m, preferredStart)));
+  const others = groups.filter((g) => !preferred.includes(g));
+
+  const blocks: string[] = [];
+  const addSection = (heading: string | null, section: Match[][]) =>
+    section.forEach((g, i) => {
+      const block = formatVenueDay(g, preferredStart);
+      blocks.push(i === 0 && heading ? `${heading}\n\n${block}` : block);
+    });
+  if (preferred.length) {
+    addSection(`⭐ <b>Có slot ${preferredStart}</b>`, preferred);
+    addSection("<b>Giờ khác</b>", others);
+  } else {
+    addSection(null, others);
+  }
+
   const messages: string[] = [];
   for (let i = 0; i < blocks.length; i += BLOCKS_PER_MESSAGE) {
     const header = i === 0 ? `<b>Có sân trống mới</b> (check lúc ${hhmm(checkedAt)} ${ddmm(checkedAt)})\n\n` : "";

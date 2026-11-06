@@ -11,4 +11,5 @@ sessions = [
 ]
 
 lookahead_days = 7
+# preferred_start = "19:00"     # list and highlight slots starting at this time first
 # crons = ["*/30 0-16 * * *"]   # UTC → 07:00–23:00 Vietnam time

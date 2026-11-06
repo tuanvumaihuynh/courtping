@@ -1,6 +1,6 @@
 import { AloboClient, AloboError, type AloboRuntime, BLOCKING_STATUSES, resolveVenue } from "@courtping/alobo";
 import { AppError } from "./errors.ts";
-import { formatError, formatNewSlots, formatRecovered, formatVenueDay, sendTelegram } from "./telegram.ts";
+import { formatError, formatNewSlots, formatRecovered, sendTelegram } from "./telegram.ts";
 import { isoDay, upcomingDates, windowsFor } from "./time.ts";
 import type { Config, Env, Match, State } from "./types.ts";
 
@@ -93,8 +93,8 @@ export async function run(env: Env, opts: RunOptions = {}): Promise<RunResult> {
     // Forget slots that are no longer free, so they are announced again if they free up later.
     state.seen = Object.fromEntries(Object.entries(state.seen).filter(([key]) => current.has(key)));
 
-    const blocks = [...fresh.keys()].sort().map((group) => formatVenueDay(fresh.get(group)!));
-    for (const message of formatNewSlots(blocks, now)) await notify(message);
+    const groups = [...fresh.keys()].sort().map((group) => fresh.get(group)!);
+    for (const message of formatNewSlots(groups, now, config.preferred_start)) await notify(message);
 
     if (state.error) {
       await notify(formatRecovered(state.error.code));

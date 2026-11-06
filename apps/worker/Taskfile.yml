@@ -5,7 +5,7 @@ vars:
   # Everything the local runner needs, read from terraform.tfvars.
   LOCAL_INPUT_EXPR: >-
     jsonencode({
-    config = { venues = var.venues, sessions = var.sessions, lookahead_days = var.lookahead_days, backoff_hours = var.backoff_hours },
+    config = { venues = var.venues, sessions = var.sessions, lookahead_days = var.lookahead_days, backoff_hours = var.backoff_hours, preferred_start = var.preferred_start },
     telegram = { token = nonsensitive(var.telegram_bot_token), chat_id = nonsensitive(var.telegram_chat_id) }
     })
 

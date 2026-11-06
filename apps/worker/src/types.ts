@@ -16,6 +16,8 @@ export interface Config {
   sessions: Session[];
   lookahead_days?: number;
   backoff_hours?: number;
+  /** HH:MM; slots starting at this time are listed first and highlighted. */
+  preferred_start?: string | null;
 }
 
 /** The part of the Workers KV API this worker uses. */

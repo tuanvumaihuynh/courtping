@@ -34,10 +34,11 @@ resource "cloudflare_workers_script" "bot" {
       name = "CONFIG"
       type = "plain_text"
       text = jsonencode({
-        venues         = var.venues
-        sessions       = var.sessions
-        lookahead_days = var.lookahead_days
-        backoff_hours  = var.backoff_hours
+        venues          = var.venues
+        sessions        = var.sessions
+        lookahead_days  = var.lookahead_days
+        backoff_hours   = var.backoff_hours
+        preferred_start = var.preferred_start
       })
     },
     { name = "ALOBO_RUNTIME", type = "secret_text", text = jsonencode(var.alobo_runtime) },
