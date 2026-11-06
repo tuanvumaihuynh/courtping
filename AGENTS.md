@@ -10,8 +10,8 @@ It runs as a Cloudflare Worker on a cron; infrastructure is OpenTofu.
 - `packages/alobo`: Alobo client (request signing, response decryption, catalog, courts, availability),
   `fetch-runtime`, which extracts the frontend version, response key, and salt from `main.dart.js`, and
   `cli.ts`, a read-only JSON CLI.
-- `skills/alobo`: agent skill for searching venues and free courts with that CLI. `.claude/skills/alobo`
-  is a symlink to it.
+- `skills/alobo`: agent skill for searching venues and free courts with that CLI. `.agents/skills/alobo`
+  and `.claude/skills/alobo` are symlinks to it.
 - `infra/cloudflare`: Worker script, KV namespace, cron trigger, secrets.
 
 ## Commands
@@ -38,5 +38,7 @@ Use Task from the repo root. Node 26 (`nvm use`) and pnpm are required.
 
 There is no public API; the client mimics Alobo's web app. Keep it read-only: no booking, payment, or
 account endpoints. Keep request volume low (0.5 s between calls, at most 40 windows per run) and stop on
-401, 403, or 429. When Alobo ships a new frontend, `packages/alobo/src/runtime.ts` is the first thing
-that breaks; update it against the live bundle and keep `test/runtime.test.ts` offline.
+401, 403, or 429. Availability lists pickleball courts and dates beyond a venue's booking horizon as
+free; filter them (`isPickleballCourt`, `lastBookableDate`). When Alobo ships a new frontend,
+`packages/alobo/src/runtime.ts` is the first thing that breaks; update it against the live bundle and
+keep `test/runtime.test.ts` offline.

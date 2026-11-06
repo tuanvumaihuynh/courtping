@@ -35,15 +35,17 @@ node packages/alobo/src/cli.ts availability --venue an-khanh --venue sport_hoc_v
 
 - `distanceKm` is straight-line from coordinates venue owners typed in. Road distance is often 1.5 to 2
   times longer, and a few venues have wrong coordinates.
-- A window with no venues means no court was free for the whole duration. Dates far ahead may not be open
-  for booking yet, so say "nothing open yet" rather than "fully booked" for them.
+- Venues take one-time bookings only up to a horizon: some a fixed number of days ahead, most until the end
+  of the current month. `bookableUntil` gives each venue's last bookable date, and `notOpenYet` lists the
+  venues a window skipped for that reason. Say "not open for booking yet" for those, not "fully booked".
+- A venue missing from `venues` and from `notOpenYet` had no court free for the whole duration.
 - Pickleball courts are filtered out of `availability`. `courts` shows them with `setting: "pickleball"`.
 - `active: false` venues are hidden unless `--include-inactive` is passed; they cannot be booked.
 
 ## Limits
 
-- Each time window is one request, spaced 1 s apart, with a hard cap of 40 windows per call. Use `--step 60`
-  and few dates.
+- `availability` makes one request per venue (booking horizon) plus one per time window, spaced 1 s apart,
+  with a hard cap of 40 windows per call. Use `--step 60` and few dates.
 - On `rate_limited`, `http_error` (401/403), or any other error, stop and report it; do not retry in a loop.
 - `frontend_changed` is handled by refreshing the cached key once. If `fetch-runtime` fails, Alobo changed
   its web bundle and `packages/alobo/src/runtime.ts` needs updating.

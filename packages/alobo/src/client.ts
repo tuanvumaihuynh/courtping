@@ -1,3 +1,4 @@
+import type { BookingRules } from "./booking.ts";
 import { AloboError } from "./errors.ts";
 
 export const WEB_URL = "https://datlich.alobo.vn";
@@ -211,6 +212,17 @@ export class AloboClient {
         },
       ];
     });
+  }
+
+  /** How far ahead the venue takes one-time bookings. */
+  async bookingRules(venueId: string): Promise<BookingRules> {
+    const data = (await this.call("GET", `get_branch/${encodeURIComponent(venueId)}`)) as Record<string, unknown>;
+    if (typeof data !== "object" || data === null) throw new AloboError("schema_changed", "venue response is not an object");
+    const days = Number(data.oneTimeBookingBefore);
+    return {
+      daysAhead: data.oneTimeBookingBefore == null || !Number.isFinite(days) ? null : days,
+      untilEndOfMonth: data.oneTimeBookingEndMonth === true,
+    };
   }
 
   /** Courts of one venue. `setting` distinguishes badminton ("san_thuong") from pickleball. */

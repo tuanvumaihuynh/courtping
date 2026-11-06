@@ -34,6 +34,7 @@ function setup() {
     alobo: "ok" as "ok" | "429" | "bad-key",
     courts: ["c1", "c2"],
     telegram: "ok" as "ok" | "down",
+    bookingRules: { oneTimeBookingBefore: 7, oneTimeBookingEndMonth: false },
   };
   const env: Env = {
     CONFIG: JSON.stringify(CONFIG),
@@ -57,6 +58,7 @@ function setup() {
     if (url.endsWith("/version.json")) return Response.json({ version: scenario.version });
     if (scenario.alobo === "429") return Response.json({ message: "too many" }, { status: 429 });
     if (scenario.alobo === "bad-key") return Response.json({ enc: true, iv: btoa("x".repeat(16)), data: btoa("y".repeat(32)) });
+    if (url.includes("/get_branch/")) return Response.json(await encrypt(scenario.bookingRules));
 
     const body = JSON.parse(String(init?.body));
     expect(body.branchIds).toEqual(["sport_clb_cau_long_an_khanh"]);
@@ -160,6 +162,33 @@ describe("run", () => {
     t.scenario.telegram = "ok";
     await t.tick();
     expect(t.sent.some((m) => m.includes("Có sân trống mới"))).toBe(true);
+  });
+});
+
+describe("booking horizon", () => {
+  it("skips dates the venue does not take bookings for yet", async () => {
+    const t = setup();
+    t.scenario.bookingRules = { oneTimeBookingBefore: 2, oneTimeBookingEndMonth: false }; // open through 07/11
+    const result = await t.tick();
+    expect(t.sent).toHaveLength(0);
+    expect(t.requests.filter((u) => u.includes("get_filtered_branch_booking"))).toHaveLength(0);
+    expect(result.state.rules?.sport_clb_cau_long_an_khanh).toMatchObject({ daysAhead: 2, untilEndOfMonth: false });
+  });
+
+  it("treats untilEndOfMonth as open through the last day of the month", async () => {
+    const t = setup();
+    t.scenario.bookingRules = { oneTimeBookingBefore: 0, oneTimeBookingEndMonth: true };
+    await t.tick();
+    expect(t.sent).toHaveLength(1);
+  });
+
+  it("reads booking rules once a day", async () => {
+    const t = setup();
+    await t.tick();
+    await t.tick(NOW + 3_600_000);
+    expect(t.requests.filter((u) => u.includes("/get_branch/"))).toHaveLength(1);
+    await t.tick(NOW + 25 * 3_600_000);
+    expect(t.requests.filter((u) => u.includes("/get_branch/"))).toHaveLength(2);
   });
 });
 

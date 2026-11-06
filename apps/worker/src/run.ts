@@ -1,4 +1,11 @@
-import { AloboClient, AloboError, type AloboRuntime, BLOCKING_STATUSES, resolveVenue } from "@courtping/alobo";
+import {
+  AloboClient,
+  AloboError,
+  type AloboRuntime,
+  BLOCKING_STATUSES,
+  lastBookableDate,
+  resolveVenue,
+} from "@courtping/alobo";
 import { AppError } from "./errors.ts";
 import { formatError, formatNewSlots, formatRecovered, sendTelegram } from "./telegram.ts";
 import { isoDay, upcomingDates, windowsFor } from "./time.ts";
@@ -6,6 +13,8 @@ import type { Config, Env, Match, State } from "./types.ts";
 
 /** The free plan allows 50 subrequests per invocation; leave room for version.json and Telegram. */
 export const MAX_WINDOWS = 40;
+const SUBREQUEST_BUDGET = 45;
+const RULES_TTL_MS = 24 * 3_600_000;
 const DEFAULT_BACKOFF_HOURS = 6;
 const STATE_KEY = "state";
 
@@ -76,17 +85,33 @@ export async function run(env: Env, opts: RunOptions = {}): Promise<RunResult> {
       );
     }
 
-    const venueIds = config.venues.map(resolveVenue);
+    const venueIds = [...new Set(config.venues.map(resolveVenue))];
+
+    // Venues only take bookings a few days or until month end; Alobo still reports later dates as free.
+    state.rules ??= {};
+    const stale = venueIds.filter((id) => !(now - (state.rules![id]?.fetchedAt ?? 0) < RULES_TTL_MS));
+    for (const id of stale.slice(0, Math.max(0, SUBREQUEST_BUDGET - 1 - jobs.length))) {
+      state.rules[id] = { ...(await alobo.bookingRules(id)), fetchedAt: now };
+    }
+    state.rules = Object.fromEntries(Object.entries(state.rules).filter(([id]) => venueIds.includes(id)));
+    const lastDay = new Map(venueIds.map((id) => [id, state.rules![id] ? lastBookableDate(state.rules![id], now) : null]));
+
     const fresh = new Map<string, Match[]>(); // "day|venueId" → newly free windows
     const current = new Set<string>();
     for (const { session, start, end } of jobs) {
-      for (const row of await alobo.availability(venueIds, start, end)) {
+      const day = isoDay(start);
+      const open = venueIds.filter((id) => {
+        const last = lastDay.get(id);
+        return last == null || day <= last;
+      });
+      if (open.length === 0) continue;
+      for (const row of await alobo.availability(open, start, end)) {
         if (row.courts.length < session.courts) continue;
         const key = `${row.venue.id}|${start}|${end}|${session.courts}`;
         current.add(key);
         if (state.seen[key]) continue;
         state.seen[key] = start;
-        const group = `${isoDay(start)}|${row.venue.id}`;
+        const group = `${day}|${row.venue.id}`;
         fresh.set(group, [...(fresh.get(group) ?? []), { ...row, start, end }]);
       }
     }

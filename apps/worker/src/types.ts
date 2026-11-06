@@ -1,4 +1,4 @@
-import type { Availability } from "@courtping/alobo";
+import type { Availability, BookingRules } from "@courtping/alobo";
 
 export interface Session {
   weekdays: string[];
@@ -45,4 +45,6 @@ export interface State {
   seen: Record<string, number>;
   blockedUntil: number | null;
   error: { code: string; since: number } | null;
+  /** Per-venue booking horizon, refreshed daily. */
+  rules?: Record<string, BookingRules & { fetchedAt: number }>;
 }

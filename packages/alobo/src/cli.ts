@@ -12,6 +12,7 @@
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
+import { lastBookableDate } from "./booking.ts";
 import { AloboClient, type AloboRuntime, bookingUrl, resolveVenue } from "./client.ts";
 import { AloboError } from "./errors.ts";
 import { fetchRuntime } from "./runtime.ts";
@@ -134,10 +135,19 @@ async function availability(args: string[]) {
     throw new UsageError(`${spans.length} windows requested; the limit is ${MAX_WINDOWS}. Use fewer dates or a larger --step`);
   }
 
+  if (spans.length + venueIds.length > MAX_WINDOWS + 10) {
+    throw new UsageError(`${spans.length} windows for ${venueIds.length} venues is too many requests; narrow the query`);
+  }
+
   const alobo = await client();
+  // Alobo reports dates a venue does not take bookings for yet as free, so check each venue's horizon.
+  const bookableUntil: Record<string, string | null> = {};
+  for (const id of venueIds) bookableUntil[id] = lastBookableDate(await alobo.bookingRules(id), Date.now());
+
   const results = [];
   for (const span of spans) {
-    const rows = await alobo.availability(venueIds, span.start, span.end);
+    const open = venueIds.filter((id) => bookableUntil[id] == null || span.date <= bookableUntil[id]!);
+    const rows = open.length ? await alobo.availability(open, span.start, span.end) : [];
     results.push({
       date: span.date,
       from: vnTime(span.start),
@@ -145,9 +155,10 @@ async function availability(args: string[]) {
       venues: rows
         .filter((r) => r.courts.length >= minCourts)
         .map((r) => ({ id: r.venue.id, name: r.venue.name, freeCourts: r.courts, bookingUrl: bookingUrl(r.venue.id) })),
+      notOpenYet: venueIds.filter((id) => !open.includes(id)),
     });
   }
-  return { timezone: "Asia/Ho_Chi_Minh", minCourts, windows: results, requests: alobo.requests };
+  return { timezone: "Asia/Ho_Chi_Minh", minCourts, bookableUntil, windows: results, requests: alobo.requests };
 }
 
 const COMMANDS: Record<string, (args: string[]) => Promise<unknown>> = { venues, courts, availability };
