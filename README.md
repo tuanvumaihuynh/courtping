@@ -3,6 +3,8 @@
 Posts free badminton courts from [Alobo](https://datlich.alobo.vn) to a Telegram group, so whoever is
 online can book before the slot is gone. Runs on the Cloudflare Workers free plan.
 
+<img src="docs/telegram-message.png" alt="A courtping message in Telegram listing free 20:00–22:00 courts at four venues" width="540">
+
 ```mermaid
 flowchart LR
   subgraph laptop[Your machine]
