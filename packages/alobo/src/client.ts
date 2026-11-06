@@ -25,6 +25,30 @@ export interface Venue {
   address: string;
 }
 
+/** Catalog `type` for badminton venues. */
+export const BADMINTON = 2;
+
+export interface CatalogVenue {
+  id: string;
+  name: string;
+  address: string;
+  sport: number | null;
+  active: boolean;
+  lat: number | null;
+  lng: number | null;
+  /** Opening hours as decimal hours, e.g. 5.5 = 05:30. */
+  opensAt: number | null;
+  closesAt: number | null;
+}
+
+export interface Court {
+  id: string;
+  name: string;
+  shortName: string;
+  setting: string;
+  active: boolean;
+}
+
 export interface Availability {
   venue: Venue;
   /** Court names, naturally sorted. */
@@ -32,6 +56,13 @@ export interface Availability {
 }
 
 export const resolveVenue = (v: string): string => VENUE_ALIASES[v] ?? v;
+
+/**
+ * Mixed venues return pickleball courts as free badminton courts (both have yardType 2), and only the
+ * court list endpoint marks them. Venues name them "Pickleball N" / "PKN", so filter by name.
+ */
+export const isPickleballCourt = (court: { name?: string; shortName?: string }): boolean =>
+  /pickle/i.test(court.name ?? "") || /^pk\s*\d*$/i.test((court.shortName ?? "").trim());
 export const bookingUrl = (venueId: string): string => `${WEB_URL}/san/${encodeURIComponent(venueId)}`;
 
 const encoder = new TextEncoder();
@@ -82,13 +113,15 @@ export async function decryptEnvelope(envelope: Envelope, key: string): Promise<
 export class AloboClient {
   private readonly runtime: AloboRuntime;
   private readonly fetchFn: typeof fetch;
+  private readonly minGapMs: number;
   private lastRequestAt = 0;
   requests = 0;
 
-  constructor(runtime: AloboRuntime, fetchFn: typeof fetch = fetch) {
+  constructor(runtime: AloboRuntime, fetchFn: typeof fetch = fetch, options: { minGapMs?: number } = {}) {
     this.runtime = runtime;
     // workerd throws "Illegal invocation" if fetch is called as a method of another object.
     this.fetchFn = (input, init) => fetchFn(input, init);
+    this.minGapMs = options.minGapMs ?? MIN_REQUEST_GAP_MS;
   }
 
   /** Throws `frontend_changed` when the live frontend no longer matches the runtime's version. */
@@ -103,7 +136,7 @@ export class AloboClient {
   }
 
   private async call(method: "GET" | "POST", endpoint: string, body?: unknown): Promise<unknown> {
-    const wait = MIN_REQUEST_GAP_MS - (Date.now() - this.lastRequestAt);
+    const wait = this.minGapMs - (Date.now() - this.lastRequestAt);
     if (wait > 0) await sleep(wait);
     const headers: Record<string, string> = {
       "x-user-app": await signature(this.runtime.app_salt),
@@ -156,6 +189,46 @@ export class AloboClient {
     }
   }
 
+  /** Every venue in the catalog, all sports and statuses. One request (~3000 rows). */
+  async catalog(): Promise<CatalogVenue[]> {
+    const data = (await this.call("GET", "branches")) as { branches?: unknown };
+    if (!Array.isArray(data?.branches)) throw new AloboError("schema_changed", "branches response has no list");
+    return (data.branches as Array<Record<string, unknown>>).flatMap((b): CatalogVenue[] => {
+      if (typeof b.id !== "string") return [];
+      const loc = (b.location ?? {}) as Record<string, unknown>;
+      const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+      return [
+        {
+          id: b.id,
+          name: String(b.name ?? b.id),
+          address: String(b.address ?? ""),
+          sport: num(b.type),
+          active: num(b.status) === 1,
+          lat: num(loc._latitude ?? loc.latitude),
+          lng: num(loc._longitude ?? loc.longitude),
+          opensAt: num(b.morningStartWorkingTime),
+          closesAt: num(b.afternoonEndWorkingTime),
+        },
+      ];
+    });
+  }
+
+  /** Courts of one venue. `setting` distinguishes badminton ("san_thuong") from pickleball. */
+  async courts(venueId: string): Promise<Court[]> {
+    const data = (await this.call("GET", `get_cores/${encodeURIComponent(venueId)}`)) as { cores?: unknown };
+    if (!Array.isArray(data?.cores)) throw new AloboError("schema_changed", "courts response has no list");
+    return (data.cores as Array<Record<string, unknown>>)
+      .filter((c) => typeof c.id === "string")
+      .map((c) => ({
+        id: c.id as string,
+        name: String(c.name ?? c.id),
+        shortName: String(c.shortName ?? ""),
+        setting: String(c.setting ?? ""),
+        active: c.status === 1 || c.status === "1",
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }));
+  }
+
   /** Venues with free courts for the whole [start, end) window (epoch ms). */
   async availability(venueIds: string[], start: number, end: number): Promise<Availability[]> {
     const data = await this.call("POST", "get_filtered_branch_booking_v2", {
@@ -178,6 +251,7 @@ export class AloboClient {
       const courts = new Map<string, string>();
       for (const yard of yards as Array<{ id?: string; name?: string; shortName?: string }>) {
         if (!yard?.id) throw new AloboError("schema_changed", "available court has no id");
+        if (isPickleballCourt(yard)) continue;
         if (!courts.has(yard.id)) courts.set(yard.id, yard.shortName || yard.name || yard.id);
       }
       return {

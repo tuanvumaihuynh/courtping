@@ -8,6 +8,7 @@
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "vitest run",
-    "fetch-runtime": "node src/fetch-runtime.ts"
+    "fetch-runtime": "node src/fetch-runtime.ts",
+    "cli": "node src/cli.ts"
   }
 }

@@ -7,8 +7,11 @@ It runs as a Cloudflare Worker on a cron; infrastructure is OpenTofu.
 
 - `apps/worker`: the Worker. `src/run.ts` is one check; `src/telegram.ts` holds all user-facing text;
   `scripts/local.ts` runs the same code on a laptop.
-- `packages/alobo`: Alobo client (request signing, response decryption, availability) and
-  `fetch-runtime`, which extracts the frontend version, response key, and salt from `main.dart.js`.
+- `packages/alobo`: Alobo client (request signing, response decryption, catalog, courts, availability),
+  `fetch-runtime`, which extracts the frontend version, response key, and salt from `main.dart.js`, and
+  `cli.ts`, a read-only JSON CLI.
+- `skills/alobo`: agent skill for searching venues and free courts with that CLI. `.claude/skills/alobo`
+  is a symlink to it.
 - `infra/cloudflare`: Worker script, KV namespace, cron trigger, secrets.
 
 ## Commands
@@ -18,6 +21,7 @@ Use Task from the repo root. Node 26 (`nvm use`) and pnpm are required.
 - `task test`: typecheck, unit tests, `tofu validate`. Run before every commit.
 - `task dry-run`: one check against live Alobo, prints messages. Needs `infra/cloudflare/terraform.tfvars`.
 - `task deploy` / `task destroy`: apply or tear down without prompting.
+- `task alobo:cli -- <venues|courts|availability> ...`: query Alobo directly; see `skills/alobo/SKILL.md`.
 
 ## Conventions
 
@@ -27,7 +31,8 @@ Use Task from the repo root. Node 26 (`nvm use`) and pnpm are required.
   enums, namespaces, or constructor parameter properties.
 - Keep comments for things the code cannot say. No filler in docs, commit messages, or PR descriptions.
 - Tests must not call Alobo or Telegram. Mock `fetch` as in `apps/worker/test/run.test.ts`.
-- Never commit `.env`, `terraform.tfvars`, `*.tfstate`, or `alobo_runtime.auto.tfvars.json`.
+- Never commit `.env`, `terraform.tfvars`, `*.tfstate`, `alobo_runtime.auto.tfvars.json`, or `.cache/`.
+- Local caches go in `.cache/` at the repo root, never in the home directory.
 
 ## Alobo
 

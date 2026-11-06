@@ -16,6 +16,12 @@ tasks:
     cmds:
       - task: fetch-runtime
 
+  cli:
+    desc: "Read-only Alobo CLI, e.g. task alobo:cli -- venues --query 'an khanh'"
+    dir: "{{.ROOT_DIR}}"
+    cmds:
+      - node packages/alobo/src/cli.ts {{.CLI_ARGS}}
+
   test:
     desc: Unit tests
     cmds:

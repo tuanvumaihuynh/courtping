@@ -4,6 +4,7 @@
 node_modules/
 dist/
 .state/
+.cache/
 
 # OpenTofu
 **/.terraform/

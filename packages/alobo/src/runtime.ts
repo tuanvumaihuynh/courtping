@@ -8,7 +8,7 @@
  * base URL (arg 8) is the production API is used. Arg 5 is the response key, arg 18 the salt.
  */
 
-import { API_URL } from "./client.ts";
+import { API_URL, WEB_URL } from "./client.ts";
 
 const ARG_BASE_URL = 8;
 const ARG_RESPONSE_KEY = 5;
@@ -76,4 +76,27 @@ export function validateRuntime(runtime: ExtractedRuntime): void {
   if (runtime.base_url !== API_URL) throw new Error(`unexpected base_url ${runtime.base_url}`);
   if (new TextEncoder().encode(runtime.response_key).length !== 32) throw new Error("response_key is not 32 bytes");
   if (!runtime.app_salt) throw new Error("app_salt is empty");
+}
+
+export interface FetchedRuntime extends ExtractedRuntime {
+  version: string;
+}
+
+/** Download the live frontend and extract its runtime. Fails if Alobo deploys while downloading. */
+export async function fetchRuntime(fetchFn: typeof fetch = fetch): Promise<FetchedRuntime> {
+  const get = async (url: string) => {
+    const res = await fetchFn(url, { headers: { "cache-control": "no-cache" } });
+    if (!res.ok) throw new Error(`${url} returned HTTP ${res.status}`);
+    return res;
+  };
+  const liveVersion = async () => ((await (await get(`${WEB_URL}/version.json`)).json()) as { version?: string }).version;
+
+  const version = await liveVersion();
+  if (!version) throw new Error("version.json has no version");
+  const bundle = await (await get(`${WEB_URL}/main.dart.js`)).text();
+  if ((await liveVersion()) !== version) throw new Error("Alobo deployed a new frontend while fetching; retry in a few minutes");
+
+  const runtime = { version, ...extractRuntime(bundle) };
+  validateRuntime(runtime);
+  return runtime;
 }

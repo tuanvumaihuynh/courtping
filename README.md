@@ -26,6 +26,7 @@ run checks `version.json` and asks for a redeploy when the frontend changes.
 ## Setup
 
 Requires Node 26, pnpm, [Task](https://taskfile.dev), and [OpenTofu](https://opentofu.org).
+The full walkthrough, from BotFather to Cloudflare, is in [SETUP.md](SETUP.md).
 
 ```sh
 nvm use
@@ -49,6 +50,16 @@ the bot to the group, send a message, and read `chat.id` from
 | `task test` | typecheck, unit tests, `tofu validate` |
 
 OpenTofu state is local (`infra/cloudflare/terraform.tfstate`). Keep it until you have run `task destroy`.
+
+## Searching Alobo
+
+`packages/alobo/src/cli.ts` is a read-only JSON CLI for finding venues and free courts, also usable by
+agents through the skill in `skills/alobo`:
+
+```sh
+task alobo:cli -- venues --near 10.7725,106.6980 --radius 4
+task alobo:cli -- availability --venue an-khanh --date 2026-11-09 --from 19:00 --to 22:00 --duration 120
+```
 
 ## Configuration
 
