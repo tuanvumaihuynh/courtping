@@ -130,7 +130,7 @@ URL: `https://datlich.alobo.vn/san/<id>`. Aliases for a few District 2 venues ar
 | `tofu apply`: `Provider produced inconsistent result after apply` | Known Cloudflare provider v5 issue. Run `task deploy` again. |
 | `tofu plan` always shows the Worker script "will be updated" | Same provider issue; harmless. |
 | Group message: `frontend_changed` or `decode_error` | Alobo shipped a new web app. Run `task deploy` to extract the new key. |
-| Group message: `rate_limited` | Alobo returned 429. The bot pauses for `backoff_hours`. Reduce windows or run less often. |
+| Group message: `rate_limited` | Alobo returned 429. The bot pauses until the rate-limit window resets (at least 5 minutes, at most `backoff_hours`). If it keeps happening, reduce windows or run less often. |
 | `task deploy`: `fetch-runtime: frontend config structure changed` | Alobo changed its bundle layout. `packages/alobo/src/runtime.ts` needs an update. |
 | Nothing in the group, `task status` shows `telegram_error` | Wrong token or chat id, or the bot was removed from the group. |
 | `Node 26+ required` | Run `nvm use` in the repo root. |

@@ -31,7 +31,7 @@ function setup() {
   const requests: string[] = [];
   const scenario = {
     version: "1.0.0",
-    alobo: "ok" as "ok" | "429" | "bad-key",
+    alobo: "ok" as "ok" | "429" | "429-reset" | "bad-key",
     courts: ["c1", "c2"],
     telegram: "ok" as "ok" | "down",
     bookingRules: { oneTimeBookingBefore: 7, oneTimeBookingEndMonth: false },
@@ -57,6 +57,10 @@ function setup() {
     }
     if (url.endsWith("/version.json")) return Response.json({ version: scenario.version });
     if (scenario.alobo === "429") return Response.json({ message: "too many" }, { status: 429 });
+    if (scenario.alobo === "429-reset") {
+      const reset = String(Math.floor(Date.now() / 1000) + 120);
+      return Response.json({ message: "too many" }, { status: 429, headers: { date: new Date().toUTCString(), "x-ratelimit-reset": reset } });
+    }
     if (scenario.alobo === "bad-key") return Response.json({ enc: true, iv: btoa("x".repeat(16)), data: btoa("y".repeat(32)) });
     if (url.includes("/get_branch/")) return Response.json(await encrypt(scenario.bookingRules));
 
@@ -128,6 +132,14 @@ describe("run", () => {
     expect(t.sent).toHaveLength(3);
     expect(t.sent[1]).toContain("Có sân trống mới");
     expect(t.sent[2]).toContain("chạy lại bình thường");
+  });
+
+  it("pauses only until the window resets when Alobo says when (at least 5 minutes)", async () => {
+    const t = setup();
+    t.scenario.alobo = "429-reset"; // resets in 2 minutes
+    const { state } = await t.tick();
+    expect(state.blockedUntil! - NOW).toBe(5 * 60_000);
+    expect(t.sent[0]).toContain("rate_limited");
   });
 
   it("reports the same error only once", async () => {

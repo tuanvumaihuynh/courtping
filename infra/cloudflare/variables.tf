@@ -62,8 +62,8 @@ variable "preferred_start" {
 
 variable "backoff_hours" {
   type        = number
-  default     = 6
-  description = "How long to pause after Alobo answers 401/403/429."
+  default     = 1
+  description = "Longest pause after Alobo answers 401/403/429. A 429 that says when it resets pauses for that long, at least 5 minutes."
 }
 
 variable "crons" {

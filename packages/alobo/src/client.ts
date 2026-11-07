@@ -1,9 +1,15 @@
 import type { BookingRules } from "./booking.ts";
 import { AloboError } from "./errors.ts";
+import { type RateLimit, readRateLimit } from "./ratelimit.ts";
 
 export const WEB_URL = "https://datlich.alobo.vn";
 export const API_URL = "https://user-global.alobo.vn";
 const MIN_REQUEST_GAP_MS = 500;
+/** Availability allows 10 requests per ~10 s; stay under it even when `remaining` is unreliable. */
+const ENDPOINT_GAP_MS: Record<string, number> = { get_filtered_branch_booking_v2: 1200 };
+/** Wait out a 429 in place when the window resets this soon; otherwise give up and report it. */
+const MAX_RETRY_WAIT_MS = 30_000;
+const RESET_MARGIN_MS = 250;
 
 export const VENUE_ALIASES: Record<string, string> = {
   "an-khanh": "sport_clb_cau_long_an_khanh",
@@ -67,7 +73,7 @@ export const isPickleballCourt = (court: { name?: string; shortName?: string }):
 export const bookingUrl = (venueId: string): string => `${WEB_URL}/san/${encodeURIComponent(venueId)}`;
 
 const encoder = new TextEncoder();
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const pad = (n: number) => String(n).padStart(2, "0");
 const base64 = (s: string): Uint8Array<ArrayBuffer> => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
@@ -111,18 +117,46 @@ export async function decryptEnvelope(envelope: Envelope, key: string): Promise<
   }
 }
 
+export interface ClientOptions {
+  /** Minimum gap between any two requests. */
+  minGapMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
 export class AloboClient {
   private readonly runtime: AloboRuntime;
   private readonly fetchFn: typeof fetch;
   private readonly minGapMs: number;
+  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly now: () => number;
   private lastRequestAt = 0;
+  private readonly lastByEndpoint = new Map<string, number>();
+  private readonly limits = new Map<string, RateLimit>();
   requests = 0;
 
-  constructor(runtime: AloboRuntime, fetchFn: typeof fetch = fetch, options: { minGapMs?: number } = {}) {
+  constructor(runtime: AloboRuntime, fetchFn: typeof fetch = fetch, options: ClientOptions = {}) {
     this.runtime = runtime;
     // workerd throws "Illegal invocation" if fetch is called as a method of another object.
     this.fetchFn = (input, init) => fetchFn(input, init);
     this.minGapMs = options.minGapMs ?? MIN_REQUEST_GAP_MS;
+    this.sleep = options.sleep ?? sleep;
+    this.now = options.now ?? Date.now;
+  }
+
+  /** How long to wait before the next request to `bucket`, from pacing and the last rate-limit headers. */
+  private waitFor(bucket: string): number {
+    const now = this.now();
+    const gap = Math.max(
+      this.minGapMs - (now - this.lastRequestAt),
+      (ENDPOINT_GAP_MS[bucket] ?? 0) - (now - (this.lastByEndpoint.get(bucket) ?? 0)),
+    );
+    const limit = this.limits.get(bucket);
+    const exhausted =
+      limit?.remaining != null && limit.remaining <= 1 && limit.resetAt != null && limit.resetAt > now
+        ? limit.resetAt - now + RESET_MARGIN_MS
+        : 0;
+    return Math.max(0, gap, exhausted);
   }
 
   /** Throws `frontend_changed` when the live frontend no longer matches the runtime's version. */
@@ -137,32 +171,50 @@ export class AloboClient {
   }
 
   private async call(method: "GET" | "POST", endpoint: string, body?: unknown): Promise<unknown> {
-    const wait = this.minGapMs - (Date.now() - this.lastRequestAt);
-    if (wait > 0) await sleep(wait);
-    const headers: Record<string, string> = {
-      "x-user-app": await signature(this.runtime.app_salt),
-      "x-version-app": this.runtime.version,
-      "x-name-app": "alobo-user",
-      "x-platform": "web",
-      "x-custom-lang": "vi",
-      Origin: WEB_URL,
-      Referer: `${WEB_URL}/`,
-      "User-Agent": "courtping",
-    };
-    if (body !== undefined) headers["content-type"] = "application/json";
+    const bucket = endpoint.split("/")[0]!;
+    let res: Response | undefined;
+    for (let attempt = 0; ; attempt++) {
+      const wait = this.waitFor(bucket);
+      if (wait > 0) await this.sleep(wait);
+      const headers: Record<string, string> = {
+        "x-user-app": await signature(this.runtime.app_salt),
+        "x-version-app": this.runtime.version,
+        "x-name-app": "alobo-user",
+        "x-platform": "web",
+        "x-custom-lang": "vi",
+        Origin: WEB_URL,
+        Referer: `${WEB_URL}/`,
+        "User-Agent": "courtping",
+      };
+      if (body !== undefined) headers["content-type"] = "application/json";
 
-    let res: Response;
-    try {
-      res = await this.fetchFn(`${API_URL}/v2/user/branch/${endpoint}`, {
-        method,
-        headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-    } catch (e) {
-      throw new AloboError("network_error", `request failed: ${e}`);
-    } finally {
-      this.requests++;
-      this.lastRequestAt = Date.now();
+      try {
+        res = await this.fetchFn(`${API_URL}/v2/user/branch/${endpoint}`, {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+      } catch (e) {
+        throw new AloboError("network_error", `request failed: ${e}`);
+      } finally {
+        this.requests++;
+        this.lastRequestAt = this.now();
+        this.lastByEndpoint.set(bucket, this.lastRequestAt);
+      }
+      const limit = readRateLimit(res.headers, this.now());
+      this.limits.set(bucket, limit);
+
+      if (res.status !== 429) break;
+      const retryInMs = limit.resetAt === null ? null : Math.max(0, limit.resetAt - this.now()) + RESET_MARGIN_MS;
+      if (attempt === 0 && retryInMs !== null && retryInMs <= MAX_RETRY_WAIT_MS) {
+        await this.sleep(retryInMs);
+        continue;
+      }
+      const message = await res
+        .json()
+        .then((j) => (j as Envelope).message ?? "")
+        .catch(() => "");
+      throw new AloboError("rate_limited", `HTTP 429 ${message}`.trim(), 429, retryInMs ?? undefined);
     }
 
     if (!res.ok) {
@@ -170,8 +222,7 @@ export class AloboClient {
         .json()
         .then((j) => (j as Envelope).message ?? "")
         .catch(() => "");
-      const code = res.status === 429 ? "rate_limited" : "http_error";
-      throw new AloboError(code, `HTTP ${res.status} ${message}`.trim(), res.status);
+      throw new AloboError("http_error", `HTTP ${res.status} ${message}`.trim(), res.status);
     }
 
     let envelope: Envelope;

@@ -82,7 +82,8 @@ most 40 time windows.
 ## Errors
 
 The bot posts each new error to the group once and posts again when it recovers. On 401, 403, or 429 it
-stops for `backoff_hours` (default 6). `frontend_changed` and `decode_error` mean the key is stale: run
+pauses until Alobo's rate-limit window resets (at least 5 minutes), or for `backoff_hours` (default 1)
+when Alobo gives no reset time. `frontend_changed` and `decode_error` mean the key is stale: run
 `task deploy`. If `fetch-runtime` fails too, Alobo changed its bundle layout and
 `packages/alobo/src/runtime.ts` needs updating. Telegram errors can only be seen in the Worker logs.
 

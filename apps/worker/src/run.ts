@@ -15,7 +15,9 @@ import type { Config, Env, Match, State } from "./types.ts";
 export const MAX_WINDOWS = 40;
 const SUBREQUEST_BUDGET = 45;
 const RULES_TTL_MS = 24 * 3_600_000;
-const DEFAULT_BACKOFF_HOURS = 6;
+const DEFAULT_BACKOFF_HOURS = 1;
+/** Shortest pause after a 429 whose reset time Alobo told us, so a busy window is not hit again at once. */
+const MIN_RATE_LIMIT_PAUSE_MS = 5 * 60_000;
 const STATE_KEY = "state";
 
 export interface RunOptions {
@@ -136,7 +138,11 @@ export async function run(env: Env, opts: RunOptions = {}): Promise<RunResult> {
     console.error("run failed", error.code, error.message);
 
     if (error.status && BLOCKING_STATUSES.has(error.status)) {
-      state.blockedUntil = now + backoffHours * 3_600_000;
+      const maxPause = backoffHours * 3_600_000;
+      const retryAfter = error instanceof AloboError ? error.retryAfterMs : undefined;
+      // A 429 with a known reset only needs a short pause; 401/403 or an unknown reset get the full backoff.
+      const pause = retryAfter === undefined ? maxPause : Math.min(maxPause, Math.max(MIN_RATE_LIMIT_PAUSE_MS, retryAfter));
+      state.blockedUntil = now + pause;
     }
     if (state.error?.code !== error.code && error.code !== "telegram_error") {
       try {
