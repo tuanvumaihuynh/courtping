@@ -294,13 +294,16 @@ export class AloboClient {
   }
 
   /** How far ahead the venue takes one-time bookings. */
-  async bookingRules(venueId: string): Promise<BookingRules> {
+  /** Booking horizon of one venue, with its name and address from the same response. */
+  async bookingRules(venueId: string): Promise<BookingRules & { name: string; address: string }> {
     const data = (await this.call("GET", `get_branch/${encodeURIComponent(venueId)}`)) as Record<string, unknown>;
     if (typeof data !== "object" || data === null) throw new AloboError("schema_changed", "venue response is not an object");
     const days = Number(data.oneTimeBookingBefore);
     return {
       daysAhead: data.oneTimeBookingBefore == null || !Number.isFinite(days) ? null : days,
       untilEndOfMonth: data.oneTimeBookingEndMonth === true,
+      name: typeof data.name === "string" && data.name ? data.name : venueId,
+      address: typeof data.address === "string" ? data.address : "",
     };
   }
 

@@ -26,6 +26,10 @@ Check: `node -v` prints `v26.x`, and `task --version`, `tofu version`, `pnpm -v`
    `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser and look for
    `"chat":{"id":-1234567890,"title":"...","type":"group"}`. Use `chat.id`, not `from.id` (that one is you).
 
+Do this before the first `task deploy`: deploying registers a webhook for the group commands, and while a
+webhook is set `getUpdates` returns nothing. To read updates again later, open
+`https://api.telegram.org/bot<TOKEN>/deleteWebhook`, then run `task deploy` when done.
+
 If `getUpdates` returns `"result":[]`:
 
 - With privacy mode on, the bot only sees commands. Send the `/start@...` command, not a normal message.
@@ -101,8 +105,11 @@ task status    # prints the bot state stored in KV
 A run with no new free slots sends nothing. To confirm the bot can post, look at the group after
 `task run` when `task dry-run` showed slots.
 
+In the group, type `/` to see the bot's commands (`/slots`, `/venues`, `/schedule`, `/status`, `/help`).
+
 After testing you can turn off the public `/run` endpoint by adding `enable_http_trigger = false` to
 `terraform.tfvars` and running `task deploy`. `task local` still runs a real check from your machine.
+`enable_telegram_commands = false` turns off the group commands and removes the webhook.
 
 To change venues or times, edit `terraform.tfvars` and run `task deploy` again.
 

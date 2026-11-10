@@ -18,7 +18,7 @@ const RULES_TTL_MS = 24 * 3_600_000;
 const DEFAULT_BACKOFF_HOURS = 1;
 /** Shortest pause after a 429 whose reset time Alobo told us, so a busy window is not hit again at once. */
 const MIN_RATE_LIMIT_PAUSE_MS = 5 * 60_000;
-const STATE_KEY = "state";
+export const STATE_KEY = "state";
 
 export interface RunOptions {
   /** Log messages instead of sending them, and do not persist state. */
@@ -33,7 +33,7 @@ export interface RunResult {
   skipped?: string;
 }
 
-function parseConfig(raw: string): Config {
+export function parseConfig(raw: string): Config {
   try {
     return JSON.parse(raw) as Config;
   } catch (e) {
@@ -102,7 +102,7 @@ export async function run(env: Env, opts: RunOptions = {}): Promise<RunResult> {
 
     // Venues only take bookings a few days or until month end; Alobo still reports later dates as free.
     state.rules ??= {};
-    const stale = venueIds.filter((id) => !(now - (state.rules![id]?.fetchedAt ?? 0) < RULES_TTL_MS));
+    const stale = venueIds.filter((id) => !state.rules![id]?.name || !(now - state.rules![id]!.fetchedAt < RULES_TTL_MS));
     for (const id of stale.slice(0, Math.max(0, SUBREQUEST_BUDGET - 1 - jobs.length))) {
       state.rules[id] = { ...(await alobo.bookingRules(id)), fetchedAt: now };
     }
@@ -111,6 +111,7 @@ export async function run(env: Env, opts: RunOptions = {}): Promise<RunResult> {
 
     const fresh = new Map<string, Match[]>(); // "day|venueId" → newly free windows
     const current = new Set<string>();
+    const free: Match[] = [];
     for (const { session, start, end } of jobs) {
       const day = isoDay(start);
       const open = venueIds.filter((id) => {
@@ -122,6 +123,7 @@ export async function run(env: Env, opts: RunOptions = {}): Promise<RunResult> {
         if (row.courts.length < session.courts) continue;
         const key = `${row.venue.id}|${start}|${end}|${session.courts}`;
         current.add(key);
+        free.push({ ...row, start, end });
         if (state.seen[key]) continue;
         state.seen[key] = start;
         const group = `${day}|${row.venue.id}`;
@@ -139,6 +141,9 @@ export async function run(env: Env, opts: RunOptions = {}): Promise<RunResult> {
       state.error = null;
     }
     state.blockedUntil = null;
+    state.free = free;
+    state.lastRun = { at: now, ok: true, windows: jobs.length, requests: alobo.requests };
+    state.lastSuccessAt = now;
     log.push(`checked ${jobs.length} windows with ${alobo.requests} requests; ${fresh.size} new venue-days`);
   } catch (err) {
     state.seen = seenBefore; // nothing from a failed run counts as announced
@@ -163,6 +168,7 @@ export async function run(env: Env, opts: RunOptions = {}): Promise<RunResult> {
       }
     }
     state.error = { code: error.code, since: state.error?.since ?? now };
+    state.lastRun = { at: now, ok: false, windows: 0, requests: 0 };
     log.push(`error ${error.code}: ${error.message}`);
   }
 

@@ -87,3 +87,9 @@ variable "enable_http_trigger" {
   default     = true
   description = "Expose POST /run on workers.dev for `task run`."
 }
+
+variable "enable_telegram_commands" {
+  type        = bool
+  default     = true
+  description = "Answer /slots, /venues, /schedule, /status and /help in the group through a Telegram webhook."
+}

@@ -1,7 +1,7 @@
-import { bookingUrl } from "@courtping/alobo";
+import { type BookingRules, bookingUrl } from "@courtping/alobo";
 import { AppError } from "./errors.ts";
-import { ddmm, hhmm, weekday } from "./time.ts";
-import type { Env, Match } from "./types.ts";
+import { ddmm, hhmm, isoDay, weekday, windowsFor } from "./time.ts";
+import type { Config, Env, Match, State } from "./types.ts";
 
 // User-facing text is Vietnamese: the bot posts to a Vietnamese group chat.
 const WEEKDAY_NAMES = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
@@ -21,11 +21,18 @@ export async function sendTelegram(
   env: Pick<Env, "TELEGRAM_BOT_TOKEN" | "TELEGRAM_CHAT_ID">,
   text: string,
   fetchFn: typeof fetch = fetch,
+  replyTo?: number,
 ): Promise<void> {
   const res = await fetchFn(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text, parse_mode: "HTML", disable_web_page_preview: true }),
+    body: JSON.stringify({
+      chat_id: env.TELEGRAM_CHAT_ID,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+      ...(replyTo === undefined ? {} : { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } }),
+    }),
   });
   const body = (await res.json().catch(() => ({}))) as { ok?: boolean; description?: string };
   if (!res.ok || !body.ok) throw new AppError("telegram_error", `Telegram ${res.status}: ${body.description ?? ""}`);
@@ -52,6 +59,22 @@ export function formatVenueDay(matches: Match[], preferredStart?: string | null)
  * With `preferredStart`, venue-days that have a window starting then come first under their own heading.
  */
 export function formatNewSlots(groups: Match[][], checkedAt: number, preferredStart?: string | null): string[] {
+  return paginate(slotBlocks(groups, preferredStart), `<b>Có sân trống mới</b> (check lúc ${hhmm(checkedAt)} ${ddmm(checkedAt)})`);
+}
+
+function paginate(blocks: string[], header: string, footer?: string): string[] {
+  const messages: string[] = [];
+  for (let i = 0; i < blocks.length; i += BLOCKS_PER_MESSAGE) {
+    const parts = blocks.slice(i, i + BLOCKS_PER_MESSAGE);
+    if (i === 0) parts.unshift(header);
+    if (footer && i + BLOCKS_PER_MESSAGE >= blocks.length) parts.push(footer);
+    messages.push(parts.join("\n\n"));
+  }
+  return messages;
+}
+
+/** Blocks for venue-days, those with a window at `preferredStart` first under their own heading. */
+function slotBlocks(groups: Match[][], preferredStart?: string | null): string[] {
   const preferred = groups.filter((g) => g.some((m) => startsAt(m, preferredStart)));
   const others = groups.filter((g) => !preferred.includes(g));
 
@@ -67,13 +90,7 @@ export function formatNewSlots(groups: Match[][], checkedAt: number, preferredSt
   } else {
     addSection(null, others);
   }
-
-  const messages: string[] = [];
-  for (let i = 0; i < blocks.length; i += BLOCKS_PER_MESSAGE) {
-    const header = i === 0 ? `<b>Có sân trống mới</b> (check lúc ${hhmm(checkedAt)} ${ddmm(checkedAt)})\n\n` : "";
-    messages.push(header + blocks.slice(i, i + BLOCKS_PER_MESSAGE).join("\n\n"));
-  }
-  return messages;
+  return blocks;
 }
 
 export function formatError(code: string, message: string, pausedUntil: number | null): string {
@@ -86,3 +103,163 @@ export function formatError(code: string, message: string, pausedUntil: number |
 
 export const formatRecovered = (previousCode: string): string =>
   `✅ Bot báo sân chạy lại bình thường (lỗi trước: <code>${escapeHtml(previousCode)}</code>).`;
+
+// Replies to group commands (/help, /venues, /slots, /schedule, /status).
+
+const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const WEEKDAY_INDEX: Record<string, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+
+export const COMMANDS: Array<{ command: string; description: string }> = [
+  { command: "slots", description: "Slot còn trống (/slots 20, /slots all)" },
+  { command: "venues", description: "Các sân đang theo dõi" },
+  { command: "schedule", description: "Bot đang tìm ngày nào, giờ nào" },
+  { command: "status", description: "Lần check gần nhất, lỗi nếu có" },
+  { command: "help", description: "Danh sách lệnh" },
+];
+
+export function formatHelp(preferredStart?: string | null): string {
+  return [
+    "🏸 <b>courtping</b>: báo sân cầu lông trống trên Alobo",
+    "",
+    preferredStart ? `/slots: slot ${preferredStart} còn trống` : "/slots: mọi slot còn trống",
+    "/slots 20: slot bắt đầu lúc 20:00",
+    "/slots all: mọi slot còn trống",
+    "/venues: các sân đang theo dõi",
+    "/schedule: bot đang tìm giờ nào, ngày nào",
+    "/status: lần check gần nhất, lỗi nếu có",
+    "",
+    "Dữ liệu cập nhật mỗi lần bot check. Đặt sân trên Alobo trước khi người khác lấy mất.",
+  ].join("\n");
+}
+
+function horizon(rules: BookingRules | undefined): string {
+  if (!rules) return "chưa rõ lịch mở đặt";
+  if (rules.untilEndOfMonth) return "đặt được đến hết tháng";
+  if (rules.daysAhead === null) return "không giới hạn ngày đặt";
+  return rules.daysAhead === 0 ? "chỉ đặt trong ngày" : `đặt trước ${rules.daysAhead} ngày`;
+}
+
+export function formatVenues(venueIds: string[], rules: State["rules"]): string {
+  const lines = [`🏸 <b>Đang theo dõi ${venueIds.length} sân</b>`, ""];
+  for (const id of venueIds) {
+    const r = rules?.[id];
+    lines.push(`• <a href="${bookingUrl(id)}">${escapeHtml(r?.name ?? id)}</a> · ${horizon(r)}`);
+  }
+  return lines.join("\n");
+}
+
+const updated = (at: number) => `cập nhật ${hhmm(at)} ${ddmm(at)}`;
+
+/** Free slots from the last check; `time` (HH:MM) keeps only windows starting then, null keeps all. */
+export function formatSlots(
+  free: Match[],
+  time: string | null,
+  checkedAt: number | undefined,
+  lookaheadDays: number,
+  preferredStart?: string | null,
+): string[] {
+  if (checkedAt === undefined) return ["Bot chưa check xong lần nào. Thử lại sau ít phút."];
+  const matches = free.filter((m) => time === null || hhmm(m.start) === time).sort((a, b) => a.start - b.start);
+  const what = time ? `slot ${time}` : "slot";
+  if (matches.length === 0) {
+    const more = time ? "\nGõ /slots all để xem giờ khác." : "";
+    return [`Không còn ${what} nào trống trong ${lookaheadDays} ngày tới · ${updated(checkedAt)}${more}`];
+  }
+  const byGroup = new Map<string, Match[]>();
+  for (const m of matches) {
+    const key = `${isoDay(m.start)}|${m.venue.id}`;
+    byGroup.set(key, [...(byGroup.get(key) ?? []), m]);
+  }
+  const groups = [...byGroup.keys()].sort().map((k) => byGroup.get(k)!);
+  const header = time ? `⭐ <b>Slot ${time} còn trống</b> · ${updated(checkedAt)}` : `<b>Slot còn trống</b> · ${updated(checkedAt)}`;
+  const blocks = time ? groups.map((g) => formatVenueDay(g, time)) : slotBlocks(groups, preferredStart);
+  return paginate(blocks, header, time ? "Gõ /slots all để xem mọi giờ." : undefined);
+}
+
+function weekdays(names: string[]): string {
+  const days = new Set(names.map((n) => WEEKDAY_INDEX[n.toLowerCase().slice(0, 3)]));
+  const ordered = DAY_ORDER.filter((d) => days.has(d));
+  const runs: number[][] = [];
+  for (const d of ordered) {
+    const last = runs.at(-1);
+    if (last && DAY_ORDER.indexOf(d) === DAY_ORDER.indexOf(last.at(-1)!) + 1) last.push(d);
+    else runs.push([d]);
+  }
+  return runs
+    .map((r) => (r.length >= 3 ? `${WEEKDAY_NAMES[r[0]!]}–${WEEKDAY_NAMES[r.at(-1)!]}` : r.map((d) => WEEKDAY_NAMES[d]).join(", ")))
+    .join(", ");
+}
+
+function duration(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h === 0 ? `${m} phút` : m === 0 ? `${h} tiếng` : `${h} tiếng ${m} phút`;
+}
+
+const clock = (minutesOfDay: number) => `${String(Math.floor(minutesOfDay / 60)).padStart(2, "0")}:${String(minutesOfDay % 60).padStart(2, "0")}`;
+
+/** "mỗi giờ từ 07:00 đến 22:00", or null when the times are not evenly spaced. */
+function cadence(times: number[]): string {
+  if (times.length === 1) return `mỗi ngày lúc ${clock(times[0]!)}`;
+  const gaps = new Set(times.slice(1).map((t, i) => t - times[i]!));
+  const range = `từ ${clock(times[0]!)} đến ${clock(times.at(-1)!)}`;
+  if (gaps.size !== 1) return `${times.length} lần mỗi ngày, ${range}`;
+  const gap = [...gaps][0]!;
+  const every = gap === 60 ? "mỗi giờ" : gap % 60 === 0 ? `mỗi ${gap / 60} giờ` : `mỗi ${gap} phút`;
+  return `${every} ${range}`;
+}
+
+export function formatSchedule(config: Config, cronTimes: number[] | null): string {
+  const lines = ["🗓 <b>Bot đang tìm</b>", ""];
+  for (const s of config.sessions) {
+    const starts = windowsFor("2026-01-05", s).map(([start]) => hhmm(start));
+    const preferred = config.preferred_start && starts.includes(config.preferred_start) ? ` (ưu tiên ${config.preferred_start})` : "";
+    lines.push(`• ${weekdays(s.weekdays)}, ${s.from}–${s.to}`);
+    lines.push(`• Chơi ${duration(s.duration_minutes)}, cần ${s.courts} sân`);
+    lines.push(`• Giờ bắt đầu: ${starts.join(", ")}${preferred}`);
+  }
+  lines.push(`• Xem trước ${config.lookahead_days ?? 7} ngày`);
+  if (config.crons?.length) {
+    const jitter = config.jitter_minutes ? `, lệch ngẫu nhiên 0–${config.jitter_minutes} phút` : "";
+    lines.push(cronTimes ? `• Check ${cadence(cronTimes)}${jitter}` : `• Check theo cron <code>${escapeHtml(config.crons.join("; "))}</code> (UTC)${jitter}`);
+  }
+  return lines.join("\n");
+}
+
+function ago(at: number, now: number): string {
+  const minutes = Math.max(0, Math.round((now - at) / 60_000));
+  if (minutes < 60) return `${minutes} phút trước`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} giờ trước`;
+  return `ngày ${ddmm(at)}`;
+}
+
+export function formatStatus(state: State | null, now: number, nextRun: number | null): string {
+  if (!state?.lastRun) return "Bot chưa check lần nào.";
+  const next = nextRun ? [`• Lần check tiếp theo: khoảng ${hhmm(nextRun)}`] : [];
+  const success = state.lastSuccessAt;
+  if (!state.error) {
+    const free = (state.free ?? []).filter((m) => m.start > now).length;
+    return [
+      "✅ <b>Bot chạy bình thường</b>",
+      "",
+      `• Check gần nhất: ${hhmm(state.lastRun.at)} (${ago(state.lastRun.at, now)})`,
+      `• ${state.lastRun.windows} khung giờ, ${state.lastRun.requests} request tới Alobo`,
+      `• Đang có ${free} slot trống`,
+      ...next,
+    ].join("\n");
+  }
+  const paused = state.blockedUntil && state.blockedUntil > now;
+  return [
+    paused ? "⚠️ <b>Bot đang tạm dừng</b>" : "⚠️ <b>Bot đang lỗi</b>",
+    "",
+    `• Lỗi: <code>${escapeHtml(state.error.code)}</code> từ ${hhmm(state.error.since)} ${ddmm(state.error.since)}`,
+    ...(paused ? [`• Chạy lại lúc ${hhmm(state.blockedUntil!)}`] : []),
+    `• Check thành công gần nhất: ${success ? `${hhmm(success)} ${ddmm(success)}` : "chưa có"}`,
+    ...next,
+  ].join("\n");
+}
+
+export const formatBadSlotsArg = (arg: string): string =>
+  `Không hiểu giờ "${escapeHtml(arg)}". Ví dụ: /slots 20, /slots 19:30, /slots all`;
+
+export const formatConfigBroken = (): string => "Cấu hình bot bị sai, không trả lời được lệnh này.";

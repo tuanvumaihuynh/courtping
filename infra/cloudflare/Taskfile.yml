@@ -32,6 +32,27 @@ tasks:
       - task: :alobo:fetch-runtime
       - task: :worker:build
       - tofu apply -auto-approve -input=false
+      - task: telegram-webhook
+
+  telegram-webhook:
+    desc: Point the Telegram webhook at the Worker and publish the command menu (or remove both when disabled)
+    cmds:
+      - task: check
+      - |
+        set -e
+        export TELEGRAM_BOT_TOKEN=$(echo 'nonsensitive(var.telegram_bot_token)' | tofu console | tr -d '"')
+        SCRIPT="{{.ROOT_DIR}}/apps/worker/scripts/telegram-webhook.ts"
+        if [ "$(tofu output -raw telegram_commands_enabled)" != "true" ]; then
+          node "$SCRIPT" delete
+          exit 0
+        fi
+        ACC=$(echo 'var.cloudflare_account_id' | tofu console | tr -d '"')
+        SUB=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+          "https://api.cloudflare.com/client/v4/accounts/$ACC/workers/subdomain" \
+          | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["subdomain"])')
+        export WEBHOOK_URL="https://$(tofu output -raw worker_name).$SUB.workers.dev/telegram"
+        export WEBHOOK_SECRET=$(tofu output -raw telegram_webhook_secret)
+        node "$SCRIPT" set
 
   destroy:
     desc: tofu destroy -auto-approve
@@ -39,6 +60,7 @@ tasks:
       - task: check
       - task: init
       - task: :worker:build # main.tf reads dist/index.js even when destroying
+      - TELEGRAM_BOT_TOKEN=$(echo 'nonsensitive(var.telegram_bot_token)' | tofu console | tr -d '"') node "{{.ROOT_DIR}}/apps/worker/scripts/telegram-webhook.ts" delete
       - tofu destroy -auto-approve -input=false
 
   run:

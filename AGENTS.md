@@ -5,8 +5,9 @@ It runs as a Cloudflare Worker on a cron; infrastructure is OpenTofu.
 
 ## Layout
 
-- `apps/worker`: the Worker. `src/run.ts` is one check; `src/telegram.ts` holds all user-facing text;
-  `scripts/local.ts` runs the same code on a laptop.
+- `apps/worker`: the Worker. `src/run.ts` is one check; `src/commands.ts` answers group commands from KV;
+  `src/telegram.ts` holds all user-facing text; `scripts/local.ts` runs the same code on a laptop;
+  `scripts/telegram-webhook.ts` registers the webhook and command menu on deploy.
 - `packages/alobo`: Alobo client (request signing, response decryption, catalog, courts, availability),
   `fetch-runtime`, which extracts the frontend version, response key, and salt from `main.dart.js`, and
   `cli.ts`, a read-only JSON CLI.

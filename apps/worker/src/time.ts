@@ -42,3 +42,47 @@ export function windowsFor(day: string, s: Session): Array<[number, number]> {
   for (let t = start; t + duration <= limit; t += step) out.push([t, t + duration]);
   return out;
 }
+
+function cronField(field: string, min: number, max: number): number[] | null {
+  const out = new Set<number>();
+  for (const part of field.split(",")) {
+    const m = /^(\*|(\d+)(?:-(\d+))?)(?:\/(\d+))?$/.exec(part);
+    if (!m) return null;
+    const lo = m[1] === "*" ? min : Number(m[2]);
+    const hi = m[1] === "*" ? max : m[3] !== undefined ? Number(m[3]) : m[4] !== undefined ? max : lo;
+    const step = m[4] !== undefined ? Number(m[4]) : 1;
+    if (lo < min || hi > max || lo > hi || step < 1) return null;
+    for (let v = lo; v <= hi; v += step) out.add(v);
+  }
+  return [...out];
+}
+
+/**
+ * Minutes after midnight, Vietnam time and sorted, at which daily cron expressions (UTC) fire.
+ * Null when any expression restricts day of month, month or weekday, or cannot be read.
+ */
+export function cronTimesOfDay(crons: string[]): number[] | null {
+  const out = new Set<number>();
+  for (const cron of crons) {
+    const [minute, hour, ...rest] = cron.trim().split(/\s+/);
+    if (rest.length !== 3 || rest.some((f) => f !== "*")) return null;
+    const minutes = cronField(minute!, 0, 59);
+    const hours = cronField(hour!, 0, 23);
+    if (!minutes || !hours) return null;
+    for (const h of hours) for (const m of minutes) out.add((h * 60 + m + VN_OFFSET_MS / 60_000) % 1440);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+/** The first time after `now` that falls on one of `timesOfDay` (minutes after midnight, Vietnam). */
+export function nextTimeOfDay(timesOfDay: number[], now: number): number | null {
+  if (timesOfDay.length === 0) return null;
+  const midnight = Date.parse(`${isoDay(now)}T00:00:00+07:00`);
+  for (const day of [0, 1]) {
+    for (const t of timesOfDay) {
+      const at = midnight + day * DAY_MS + t * 60_000;
+      if (at > now) return at;
+    }
+  }
+  return null;
+}

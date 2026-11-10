@@ -209,6 +209,28 @@ describe("http trigger", () => {
     const t = setup();
     expect((await worker.fetch(new Request("https://x/run", { method: "POST" }), t.env)).status).toBe(401);
     expect((await worker.fetch(new Request("https://x/"), t.env)).status).toBe(404);
+    expect((await worker.fetch(new Request("https://x/run", { method: "POST" }), { ...t.env, RUN_TOKEN: undefined })).status).toBe(404);
+  });
+});
+
+describe("state for commands", () => {
+  it("keeps every free slot, the last run and venue names", async () => {
+    const t = setup();
+    t.scenario.bookingRules = { ...t.scenario.bookingRules, name: "CLB An Khanh", address: "D2" } as typeof t.scenario.bookingRules;
+    const { state } = await t.tick();
+    expect(state.free).toHaveLength(1);
+    expect(state.free![0]!.courts).toEqual(["Court c1", "Court c2"]);
+    expect(state.lastRun).toMatchObject({ ok: true, windows: 1 });
+    expect(state.lastSuccessAt).toBe(NOW);
+    expect(state.rules!["sport_clb_cau_long_an_khanh"]!.name).toBe("CLB An Khanh");
+
+    const again = await t.tick(NOW + 60_000); // already announced, still listed as free
+    expect(again.state.free).toHaveLength(1);
+    t.scenario.alobo = "429";
+    const failed = await t.tick(NOW + 120_000);
+    expect(failed.state.lastRun).toMatchObject({ ok: false });
+    expect(failed.state.free).toHaveLength(1);
+    expect(failed.state.lastSuccessAt).toBe(NOW + 60_000);
   });
 });
 

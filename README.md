@@ -19,6 +19,7 @@ flowchart LR
   worker -- "version.json" --> web
   worker -- "availability" --> api[Alobo API]
   worker -- "new slots, errors" --> tg[Telegram group]
+  tg -- "/slots, /venues, ...<br/>(webhook)" --> worker
 ```
 
 Alobo encrypts its API responses with a key embedded in its web bundle. The bundle is ~10 MB, too large to
@@ -52,6 +53,22 @@ the bot to the group, send a message, and read `chat.id` from
 | `task test` | typecheck, unit tests, `tofu validate` |
 
 OpenTofu state is local (`infra/cloudflare/terraform.tfstate`). Keep it until you have run `task destroy`.
+
+## Group commands
+
+The bot answers these in the group, from the last check stored in KV. They never call Alobo.
+
+| Command | |
+|---|---|
+| `/slots` | free slots at `preferred_start`; `/slots 20` for 20:00, `/slots all` for every time |
+| `/venues` | tracked venues and how far ahead each takes bookings |
+| `/schedule` | days, times, and how often the bot checks |
+| `/status` | last check, current error or pause, next check |
+| `/help` | this list |
+
+`task deploy` registers a Telegram webhook to `https://<worker>.<subdomain>.workers.dev/telegram` with a
+random secret that Telegram sends back in every request, and publishes the command menu. Set
+`enable_telegram_commands = false` to turn it off; the next deploy removes the webhook.
 
 ## Searching Alobo
 
