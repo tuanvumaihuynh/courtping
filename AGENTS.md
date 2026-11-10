@@ -38,7 +38,8 @@ Use Task from the repo root. Node 26 (`nvm use`) and pnpm are required.
 
 There is no public API; the client mimics Alobo's web app. Keep it read-only: no booking, payment, or
 account endpoints. Keep request volume low (at most 40 windows per run) and stop on 401, 403, or a
-repeated 429. Availability lists pickleball courts and dates beyond a venue's booking horizon as
-free; filter them (`isPickleballCourt`, `lastBookableDate`). When Alobo ships a new frontend,
+repeated 429. Availability lists pickleball courts, other sports' courts at multi-sport venues, and
+dates beyond a venue's booking horizon as free; filter them (`yardType`, `isPickleballCourt`,
+`lastBookableDate`). When Alobo ships a new frontend,
 `packages/alobo/src/runtime.ts` is the first thing that breaks; update it against the live bundle and
 keep `test/runtime.test.ts` offline.

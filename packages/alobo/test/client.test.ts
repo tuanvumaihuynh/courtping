@@ -12,11 +12,12 @@ describe("AloboClient", () => {
     await expect(new AloboClient(RUNTIME, strictFetch as typeof fetch).checkVersion()).resolves.toBeUndefined();
   });
 
-  it("drops pickleball courts from availability", async () => {
+  it("drops pickleball and other non-badminton courts from availability", async () => {
     const yards = [
       { id: "1", name: "Sân 6", shortName: "6", yardType: 2 },
       { id: "2", name: "Pickleball 2", shortName: "PK2", yardType: 2 },
       { id: "3", name: "C.Lông 5", shortName: "CL5", yardType: 2 },
+      { id: "4", name: "Sân Rổ 2", shortName: "R2", yardType: 8 },
     ];
     const fetchMock = async () =>
       Response.json({ data: [{ branchInformation: { id: "v", name: "V" }, availableYard: yards }] });

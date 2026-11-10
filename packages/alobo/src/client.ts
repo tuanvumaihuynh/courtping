@@ -314,8 +314,10 @@ export class AloboClient {
         throw new AloboError("schema_changed", "availability row has no branchInformation/availableYard");
       }
       const courts = new Map<string, string>();
-      for (const yard of yards as Array<{ id?: string; name?: string; shortName?: string }>) {
+      for (const yard of yards as Array<{ id?: string; name?: string; shortName?: string; yardType?: number }>) {
         if (!yard?.id) throw new AloboError("schema_changed", "available court has no id");
+        // Multi-sport venues also list their other courts (basketball is 8); pickleball shares type 2.
+        if (yard.yardType !== undefined && yard.yardType !== BADMINTON) continue;
         if (isPickleballCourt(yard)) continue;
         if (!courts.has(yard.id)) courts.set(yard.id, yard.shortName || yard.name || yard.id);
       }
