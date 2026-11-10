@@ -15,9 +15,10 @@ function sameSecret(a: string, b: string): boolean {
 }
 
 export default {
-  async scheduled(_controller: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(controller: { scheduledTime: number }, env: Env, ctx: ExecutionContext): Promise<void> {
     const delay = jitterMs(env.CONFIG);
-    ctx.waitUntil(new Promise((resolve) => setTimeout(resolve, delay)).then(() => run(env)));
+    const skipIfRanSince = controller.scheduledTime;
+    ctx.waitUntil(new Promise((resolve) => setTimeout(resolve, delay)).then(() => run(env, { skipIfRanSince })));
   },
 
   /**

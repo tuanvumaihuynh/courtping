@@ -234,6 +234,19 @@ describe("state for commands", () => {
   });
 });
 
+describe("cron after jitter", () => {
+  it("skips when another run started after the cron fired", async () => {
+    const t = setup();
+    await t.tick(NOW + 60_000); // manual run during the cron's jitter sleep
+    const cron = await run(t.env, { now: NOW + 180_000, fetch: t.fetchMock, skipIfRanSince: NOW });
+    expect(cron.skipped).toMatch(/already ran/);
+    expect(t.sent).toHaveLength(1);
+
+    const next = await run(t.env, { now: NOW + HOUR, fetch: t.fetchMock, skipIfRanSince: NOW + HOUR });
+    expect(next.skipped).toBeUndefined();
+  });
+});
+
 describe("jitterMs", () => {
   it("delays up to jitter_minutes, and not at all when unset or invalid", () => {
     expect(jitterMs(JSON.stringify({ ...CONFIG, jitter_minutes: 5 }), () => 0.5)).toBe(150_000);

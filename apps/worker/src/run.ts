@@ -25,6 +25,11 @@ export interface RunOptions {
   dryRun?: boolean;
   now?: number;
   fetch?: typeof fetch;
+  /**
+   * Skip if a run started at or after this time. A cron run sleeps through its jitter first, and a
+   * manual run or a newer deploy in that gap would otherwise race it and lose its saved state.
+   */
+  skipIfRanSince?: number;
 }
 
 export interface RunResult {
@@ -73,6 +78,9 @@ export async function run(env: Env, opts: RunOptions = {}): Promise<RunResult> {
   const before = JSON.stringify(state);
   const seenBefore = { ...state.seen };
 
+  if (opts.skipIfRanSince !== undefined && state.lastRun && state.lastRun.at >= opts.skipIfRanSince) {
+    return { log, state, skipped: `already ran at ${new Date(state.lastRun.at).toISOString()}` };
+  }
   if (state.blockedUntil && state.blockedUntil > now) {
     return { log, state, skipped: `backing off until ${new Date(state.blockedUntil).toISOString()}` };
   }
