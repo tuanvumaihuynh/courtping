@@ -12,6 +12,19 @@ describe("AloboClient", () => {
     await expect(new AloboClient(RUNTIME, strictFetch as typeof fetch).checkVersion()).resolves.toBeUndefined();
   });
 
+  it("sends browser headers with API calls", async () => {
+    let sent = new Headers();
+    const fetchMock = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      sent = new Headers(init?.headers);
+      return Response.json({ data: [] });
+    };
+    await new AloboClient(RUNTIME, fetchMock as typeof fetch).availability(["v"], 0, 1);
+    expect(sent.get("user-agent")).toMatch(/^Mozilla\/5\.0 .* Chrome\/\d+/);
+    expect(sent.get("sec-fetch-site")).toBe("same-site");
+    expect(sent.get("origin")).toBe("https://datlich.alobo.vn");
+    expect(sent.get("x-platform")).toBe("web");
+  });
+
   it("drops pickleball and other non-badminton courts from availability", async () => {
     const yards = [
       { id: "1", name: "Sân 6", shortName: "6", yardType: 2 },

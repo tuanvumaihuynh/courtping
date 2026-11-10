@@ -4,6 +4,26 @@ import { type RateLimit, readRateLimit } from "./ratelimit.ts";
 
 export const WEB_URL = "https://datlich.alobo.vn";
 export const API_URL = "https://user-global.alobo.vn";
+
+/** Headers desktop Chrome sends with every request. Update the version now and then. */
+export const BROWSER_HEADERS: Readonly<Record<string, string>> = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+  Accept: "*/*",
+  "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+  "sec-ch-ua": '"Chromium";v="152", "Google Chrome";v="152", "Not?A_Brand";v="24"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"macOS"',
+};
+
+/** What Chrome adds to a same-origin asset fetch from datlich.alobo.vn (version.json, main.dart.js). */
+export const WEB_ASSET_HEADERS: Readonly<Record<string, string>> = {
+  ...BROWSER_HEADERS,
+  "Cache-Control": "no-cache",
+  Referer: `${WEB_URL}/`,
+  "Sec-Fetch-Site": "same-origin",
+  "Sec-Fetch-Mode": "cors",
+  "Sec-Fetch-Dest": "empty",
+};
 const MIN_REQUEST_GAP_MS = 500;
 /** Availability allows 10 requests per ~10 s; stay under it even when `remaining` is unreliable. */
 const ENDPOINT_GAP_MS: Record<string, number> = { get_filtered_branch_booking_v2: 1200 };
@@ -164,7 +184,7 @@ export class AloboClient {
   /** Throws `frontend_changed` when the live frontend no longer matches the runtime's version. */
   async checkVersion(): Promise<void> {
     this.requests++;
-    const res = await this.fetchFn(`${WEB_URL}/version.json`, { headers: { "cache-control": "no-cache" } });
+    const res = await this.fetchFn(`${WEB_URL}/version.json`, { headers: WEB_ASSET_HEADERS });
     if (!res.ok) throw new AloboError("http_error", `version.json returned HTTP ${res.status}`, res.status);
     const live = ((await res.json()) as { version?: string }).version;
     if (live !== this.runtime.version) {
@@ -178,7 +198,10 @@ export class AloboClient {
     for (let attempt = 0; ; attempt++) {
       const wait = this.waitFor(bucket);
       if (wait > 0) await this.sleep(wait);
+      // The web app's own headers (x-enc-compress omitted: it changes the response format) plus what Chrome
+      // adds to its cross-origin XHR to user-global.alobo.vn.
       const headers: Record<string, string> = {
+        ...BROWSER_HEADERS,
         "x-user-app": await signature(this.runtime.app_salt),
         "x-version-app": this.runtime.version,
         "x-name-app": "alobo-user",
@@ -186,9 +209,12 @@ export class AloboClient {
         "x-custom-lang": "vi",
         Origin: WEB_URL,
         Referer: `${WEB_URL}/`,
-        "User-Agent": "courtping",
+        "Sec-Fetch-Site": "same-site",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Dest": "empty",
+        Priority: "u=1, i",
       };
-      if (body !== undefined) headers["content-type"] = "application/json";
+      if (body !== undefined) headers["Content-Type"] = "application/json; charset=utf-8";
 
       try {
         res = await this.fetchFn(`${API_URL}/v2/user/branch/${endpoint}`, {

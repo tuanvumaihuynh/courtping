@@ -8,7 +8,7 @@
  * base URL (arg 8) is the production API is used. Arg 5 is the response key, arg 18 the salt.
  */
 
-import { API_URL, WEB_URL } from "./client.ts";
+import { API_URL, WEB_ASSET_HEADERS, WEB_URL } from "./client.ts";
 
 const ARG_BASE_URL = 8;
 const ARG_RESPONSE_KEY = 5;
@@ -85,7 +85,7 @@ export interface FetchedRuntime extends ExtractedRuntime {
 /** Download the live frontend and extract its runtime. Fails if Alobo deploys while downloading. */
 export async function fetchRuntime(fetchFn: typeof fetch = fetch): Promise<FetchedRuntime> {
   const get = async (url: string) => {
-    const res = await fetchFn(url, { headers: { "cache-control": "no-cache" } });
+    const res = await fetchFn(url, { headers: WEB_ASSET_HEADERS });
     if (!res.ok) throw new Error(`${url} returned HTTP ${res.status}`);
     return res;
   };
