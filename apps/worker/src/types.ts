@@ -16,6 +16,8 @@ export interface Config {
   sessions: Session[];
   lookahead_days?: number;
   backoff_hours?: number;
+  /** Cron runs start after a random delay of up to this many minutes. */
+  jitter_minutes?: number;
   /** HH:MM; slots starting at this time are listed first and highlighted. */
   preferred_start?: string | null;
 }

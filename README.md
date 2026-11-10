@@ -74,6 +74,7 @@ sessions = [
 ]
 lookahead_days = 7                    # days ahead to check
 crons          = ["*/30 0-16 * * *"]  # UTC; every 30 min, 07:00-23:00 in Vietnam
+jitter_minutes = 5                    # start each cron run 0-5 minutes late (task run is not delayed)
 ```
 
 A slot is announced once. If it gets booked and frees up again, it is announced again. One run checks at

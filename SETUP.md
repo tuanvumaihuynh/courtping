@@ -79,6 +79,7 @@ sessions = [
 
 lookahead_days  = 7
 preferred_start = "19:00"           # optional: list and highlight these slots first
+jitter_minutes  = 5                 # optional: start each cron run 0-5 minutes late
 crons           = ["0 0-15 * * *"]  # UTC; hourly, 07:00-22:00 in Vietnam
 ```
 

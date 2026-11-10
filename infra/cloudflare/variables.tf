@@ -66,6 +66,16 @@ variable "backoff_hours" {
   description = "Longest pause after Alobo answers 401/403/429. A 429 that says when it resets pauses for that long, at least 5 minutes."
 }
 
+variable "jitter_minutes" {
+  type        = number
+  default     = 0
+  description = "Delay each cron run by a random 0 to N minutes, so requests do not land on the same minute every hour."
+  validation {
+    condition     = var.jitter_minutes >= 0 && var.jitter_minutes <= 10
+    error_message = "jitter_minutes must be between 0 and 10."
+  }
+}
+
 variable "crons" {
   type        = list(string)
   description = "Cron expressions in UTC. Default: every 30 minutes, 07:00–23:00 Vietnam time."

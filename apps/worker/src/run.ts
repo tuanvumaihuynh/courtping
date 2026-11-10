@@ -41,6 +41,17 @@ function parseConfig(raw: string): Config {
   }
 }
 
+/** Random delay before a cron run, from `jitter_minutes`. Bad config gives 0; `run` reports it. */
+export function jitterMs(rawConfig: string, random: () => number = Math.random): number {
+  let minutes: unknown;
+  try {
+    minutes = (JSON.parse(rawConfig) as Config).jitter_minutes;
+  } catch {
+    return 0;
+  }
+  return typeof minutes === "number" && minutes > 0 ? Math.floor(random() * minutes * 60_000) : 0;
+}
+
 /**
  * One check: find free windows, announce those not announced before, and report each new error once.
  * Errors are reported, never thrown; only a Telegram failure cannot reach the chat.

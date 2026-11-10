@@ -39,6 +39,7 @@ resource "cloudflare_workers_script" "bot" {
         lookahead_days  = var.lookahead_days
         backoff_hours   = var.backoff_hours
         preferred_start = var.preferred_start
+        jitter_minutes  = var.jitter_minutes
       })
     },
     { name = "ALOBO_RUNTIME", type = "secret_text", text = jsonencode(var.alobo_runtime) },

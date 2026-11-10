@@ -1,4 +1,4 @@
-import { run } from "./run.ts";
+import { jitterMs, run } from "./run.ts";
 import type { Env } from "./types.ts";
 
 interface ExecutionContext {
@@ -7,7 +7,8 @@ interface ExecutionContext {
 
 export default {
   async scheduled(_controller: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(run(env));
+    const delay = jitterMs(env.CONFIG);
+    ctx.waitUntil(new Promise((resolve) => setTimeout(resolve, delay)).then(() => run(env)));
   },
 
   /** Manual trigger: `POST /run` with `Authorization: Bearer <RUN_TOKEN>`. `?dry=1` sends and saves nothing. */

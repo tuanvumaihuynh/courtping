@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import worker from "../src/index.ts";
-import { run } from "../src/run.ts";
+import { jitterMs, run } from "../src/run.ts";
 import { upcomingDates, windowsFor } from "../src/time.ts";
 import type { Env } from "../src/types.ts";
 
@@ -209,5 +209,14 @@ describe("http trigger", () => {
     const t = setup();
     expect((await worker.fetch(new Request("https://x/run", { method: "POST" }), t.env)).status).toBe(401);
     expect((await worker.fetch(new Request("https://x/"), t.env)).status).toBe(404);
+  });
+});
+
+describe("jitterMs", () => {
+  it("delays up to jitter_minutes, and not at all when unset or invalid", () => {
+    expect(jitterMs(JSON.stringify({ ...CONFIG, jitter_minutes: 5 }), () => 0.5)).toBe(150_000);
+    expect(jitterMs(JSON.stringify({ ...CONFIG, jitter_minutes: 5 }), () => 0.999)).toBeLessThan(300_000);
+    expect(jitterMs(JSON.stringify(CONFIG), () => 0.5)).toBe(0);
+    expect(jitterMs("not json", () => 0.5)).toBe(0);
   });
 });
