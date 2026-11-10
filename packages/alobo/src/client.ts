@@ -34,6 +34,8 @@ export interface Venue {
 
 /** Catalog `type` for badminton venues. */
 export const BADMINTON = 2;
+/** Catalog `type` for multi-sport venues, many of which have badminton courts (e.g. Railway Đầu Máy). */
+export const MULTI_SPORT = 8;
 
 export interface CatalogVenue {
   id: string;

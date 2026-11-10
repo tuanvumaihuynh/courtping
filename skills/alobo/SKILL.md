@@ -39,6 +39,8 @@ node packages/alobo/src/cli.ts availability --venue an-khanh --venue sport_hoc_v
   of the current month. `bookableUntil` gives each venue's last bookable date, and `notOpenYet` lists the
   venues a window skipped for that reason. Say "not open for booking yet" for those, not "fully booked".
 - A venue missing from `venues` and from `notOpenYet` had no court free for the whole duration.
+- `venues` returns badminton venues (`sport: 2`) and multi-sport venues (`sport: 8`). A multi-sport venue
+  may have no badminton court; check with `courts` (`setting` is `san_thuong` or `cau_long` for badminton).
 - Pickleball courts are filtered out of `availability`. `courts` shows them with `setting: "pickleball"`.
 - `active: false` venues are hidden unless `--include-inactive` is passed; they cannot be booked.
 

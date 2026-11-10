@@ -11,6 +11,7 @@ const CATALOG = [
   venue("t", "Học Viện Cầu Lông TPro", "1K Ngô Văn Sở, Xóm Chiếu", 10.7609, 106.7066),
   venue("c", "Lavie Q2", "40 Lương Định Của, An Khánh", 10.786, 106.731, { active: false }),
   venue("p", "Pickleball Only", "An Khánh", 10.786, 106.731, { sport: 7 }),
+  venue("m", "Railway Đầu Máy", "1115 Hoàng Sa, Quận 3", 10.95, 106.6, { sport: 8 }),
   venue("h", "Sân Hà Nội", "Hoài Đức, Hà Nội", 21.03, 105.75),
   venue("b", "The B Ung Văn Khiêm - Badminton", "155 Ung Văn Khiêm, Bình Thạnh", 10.95, 106.6),
   venue("v", "Câu Lạc Bộ Thể Thao Viettel", "Bình Thạnh", 10.95, 106.6),
@@ -21,6 +22,10 @@ describe("searchVenues", () => {
   it("matches words without diacritics and skips inactive and non-badminton venues", () => {
     expect(searchVenues(CATALOG, { query: "an khanh" }).map((v) => v.id)).toEqual(["a"]);
     expect(searchVenues(CATALOG, { query: "an khanh", includeInactive: true }).map((v) => v.id)).toEqual(["a", "c"]);
+  });
+
+  it("includes multi-sport venues", () => {
+    expect(searchVenues(CATALOG, { query: "dau may" }).map((v) => v.id)).toEqual(["m"]);
   });
 
   it("matches whole words, so a short word does not match inside longer ones", () => {

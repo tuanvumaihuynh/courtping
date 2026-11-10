@@ -1,4 +1,4 @@
-import { BADMINTON, type CatalogVenue } from "./client.ts";
+import { BADMINTON, type CatalogVenue, MULTI_SPORT } from "./client.ts";
 
 /** Lowercase and strip Vietnamese diacritics, so "an khanh" matches "An Khánh". */
 export const fold = (s: string): string =>
@@ -40,12 +40,12 @@ export interface VenueResult extends CatalogVenue {
   distanceKm?: number;
 }
 
-/** Badminton venues matching every given filter, nearest first when `near` is set, else by name. */
+/** Badminton and multi-sport venues matching every given filter, nearest first when `near` is set, else by name. */
 export function searchVenues(catalog: CatalogVenue[], q: VenueQuery): VenueResult[] {
   const words = q.query ? tokens(q.query) : [];
   const results: VenueResult[] = [];
   for (const venue of catalog) {
-    if (venue.sport !== BADMINTON || (!venue.active && !q.includeInactive)) continue;
+    if ((venue.sport !== BADMINTON && venue.sport !== MULTI_SPORT) || (!venue.active && !q.includeInactive)) continue;
     if (words.length && !matchesWords(tokens(`${venue.name} ${venue.address}`), words)) continue;
     if (q.near) {
       if (venue.lat === null || venue.lng === null) continue;
