@@ -39,7 +39,7 @@ function setup(state: State | null = STATE, config: unknown = CONFIG) {
     TELEGRAM_BOT_TOKEN: "token",
     TELEGRAM_CHAT_ID: "-100",
     TELEGRAM_WEBHOOK_SECRET: "hook-secret",
-    STATE: { get: async () => state, put: async () => {} },
+    STATE: { get: async () => state, put: async () => {}, delete: async () => {}, list: async () => ({ keys: [], list_complete: true }) },
   };
   const fetchMock = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (!String(input).includes("api.telegram.org")) throw new Error(`unexpected request to ${input}`);

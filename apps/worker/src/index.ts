@@ -1,3 +1,4 @@
+import { cleanup, isCleanupCron } from "./cleanup.ts";
 import { handleUpdate, type TelegramUpdate } from "./commands.ts";
 import { jitterMs, run } from "./run.ts";
 import type { Env } from "./types.ts";
@@ -15,7 +16,11 @@ function sameSecret(a: string, b: string): boolean {
 }
 
 export default {
-  async scheduled(controller: { scheduledTime: number }, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(controller: { cron: string; scheduledTime: number }, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (isCleanupCron(env.CONFIG, controller.cron)) {
+      ctx.waitUntil(cleanup(env).then((log) => console.log(log.join("\n"))));
+      return;
+    }
     const delay = jitterMs(env.CONFIG);
     const skipIfRanSince = controller.scheduledTime;
     ctx.waitUntil(new Promise((resolve) => setTimeout(resolve, delay)).then(() => run(env, { skipIfRanSince })));

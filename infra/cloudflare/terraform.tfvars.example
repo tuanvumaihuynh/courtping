@@ -14,4 +14,5 @@ lookahead_days = 7
 # preferred_start = "19:00"     # list and highlight slots starting at this time first
 # jitter_minutes = 5          # start each cron run 0-5 minutes late
 # crons = ["*/30 0-16 * * *"]   # UTC → 07:00–23:00 Vietnam time
+# cleanup_crons = ["15 0-16 * * *"]  # edit or delete messages whose slots are gone; [] disables
 # enable_telegram_commands = false  # turn off /slots, /venues, ... in the group

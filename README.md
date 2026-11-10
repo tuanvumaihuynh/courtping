@@ -97,6 +97,11 @@ jitter_minutes = 5                    # start each cron run 0-5 minutes late (ta
 A slot is announced once. If it gets booked and frees up again, it is announced again. One run checks at
 most 40 time windows.
 
+`cleanup_crons` (default `["15 0-16 * * *"]`) runs separately from the checks and keeps posted messages
+current against the last check: it strikes through slots that are gone and updates court lists, and
+deletes a message once none of its slots is left. Telegram only allows deleting a message for 48 hours,
+so an older message is struck through instead. It only touches messages posted after this was deployed.
+
 ## Errors
 
 The bot posts each new error to the group once and posts again when it recovers. On 401, 403, or 429 it

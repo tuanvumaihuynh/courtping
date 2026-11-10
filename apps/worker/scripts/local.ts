@@ -34,16 +34,22 @@ const dryRun = values["dry-run"];
 
 function fileKv(path: string): KV {
   const read = (): Record<string, string> => (existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {});
+  const write = (data: Record<string, string>) => {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(`${path}.tmp`, JSON.stringify(data, null, 2));
+    renameSync(`${path}.tmp`, path);
+  };
   return {
     get: async (key) => {
       const value = read()[key];
       return value === undefined ? null : JSON.parse(value);
     },
-    put: async (key, value) => {
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(`${path}.tmp`, JSON.stringify({ ...read(), [key]: value }, null, 2));
-      renameSync(`${path}.tmp`, path);
+    put: async (key, value) => write({ ...read(), [key]: value }),
+    delete: async (key) => {
+      const { [key]: _, ...rest } = read();
+      write(rest);
     },
+    list: async ({ prefix }) => ({ keys: Object.keys(read()).filter((k) => k.startsWith(prefix)).map((name) => ({ name })), list_complete: true }),
   };
 }
 
@@ -52,6 +58,8 @@ function memoryKv(): KV {
   return {
     get: async (key) => (data.has(key) ? JSON.parse(data.get(key)!) : null),
     put: async (key, value) => void data.set(key, value),
+    delete: async (key) => void data.delete(key),
+    list: async ({ prefix }) => ({ keys: [...data.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })), list_complete: true }),
   };
 }
 

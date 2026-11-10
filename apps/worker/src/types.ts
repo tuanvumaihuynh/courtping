@@ -1,4 +1,5 @@
 import type { Availability, BookingRules } from "@courtping/alobo";
+import type { SlotMessage } from "./telegram.ts";
 
 export interface Session {
   weekdays: string[];
@@ -22,12 +23,17 @@ export interface Config {
   preferred_start?: string | null;
   /** The Worker's cron expressions (UTC), shown by /schedule and /status. */
   crons?: string[];
+  /** Cron expressions (UTC) that update or delete slot messages instead of checking Alobo. */
+  cleanup_crons?: string[];
 }
 
 /** The part of the Workers KV API this worker uses. */
 export interface KV {
   get(key: string, type: "json"): Promise<unknown>;
-  put(key: string, value: string): Promise<void>;
+  /** `expiration` is in seconds since the epoch. */
+  put(key: string, value: string, options?: { expiration?: number }): Promise<void>;
+  delete(key: string): Promise<void>;
+  list(options: { prefix: string; cursor?: string }): Promise<{ keys: Array<{ name: string }>; list_complete: boolean; cursor?: string }>;
 }
 
 export interface Env {
@@ -39,6 +45,15 @@ export interface Env {
   RUN_TOKEN?: string;
   /** Telegram sends it in X-Telegram-Bot-Api-Secret-Token; unset disables /telegram. */
   TELEGRAM_WEBHOOK_SECRET?: string;
+}
+
+/** A sent slot message, kept in KV under `msg:<message_id>` until all its slots are gone. */
+export interface SentMessage extends SlotMessage {
+  sentAt: number;
+  /** The text Telegram shows now. */
+  text: string;
+  /** KV expiration (seconds since the epoch), kept when the record is rewritten. */
+  expiration: number;
 }
 
 export interface Match extends Availability {

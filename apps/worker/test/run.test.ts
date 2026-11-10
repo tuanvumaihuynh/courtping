@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { cleanup } from "../src/cleanup.ts";
 import worker from "../src/index.ts";
 import { jitterMs, run } from "../src/run.ts";
 import { upcomingDates, windowsFor } from "../src/time.ts";
@@ -29,6 +30,7 @@ function setup() {
   const kv = new Map<string, string>();
   const sent: string[] = [];
   const requests: string[] = [];
+  const telegram: Array<{ method: string; body: Record<string, unknown> }> = [];
   const scenario = {
     version: "1.0.0",
     alobo: "ok" as "ok" | "429" | "429-reset" | "bad-key",
@@ -45,6 +47,8 @@ function setup() {
     STATE: {
       get: async (key) => (kv.has(key) ? JSON.parse(kv.get(key)!) : null),
       put: async (key, value) => void kv.set(key, value),
+      delete: async (key) => void kv.delete(key),
+      list: async ({ prefix }) => ({ keys: [...kv.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })), list_complete: true }),
     },
   };
   const fetchMock: Fetch = async (input, init) => {
@@ -52,8 +56,12 @@ function setup() {
     requests.push(url);
     if (url.includes("api.telegram.org")) {
       if (scenario.telegram !== "ok") return Response.json({ ok: false, description: "chat not found" }, { status: 400 });
-      sent.push(JSON.parse(String(init?.body)).text);
-      return Response.json({ ok: true });
+      const method = url.split("/").pop()!;
+      const body = JSON.parse(String(init?.body));
+      telegram.push({ method, body });
+      if (method !== "sendMessage") return Response.json({ ok: true, result: true });
+      sent.push(body.text);
+      return Response.json({ ok: true, result: { message_id: sent.length } });
     }
     if (url.endsWith("/version.json")) return Response.json({ version: scenario.version });
     if (scenario.alobo === "429") return Response.json({ message: "too many" }, { status: 429 });
@@ -78,7 +86,9 @@ function setup() {
     );
   };
   const tick = (now = NOW) => run(env, { now, fetch: fetchMock });
-  return { env, sent, requests, scenario, tick, fetchMock };
+  const clean = (now: number) => cleanup(env, { now, fetch: fetchMock });
+  const edits = () => telegram.filter((c) => c.method !== "sendMessage");
+  return { env, kv, sent, requests, telegram, edits, scenario, tick, clean, fetchMock };
 }
 
 describe("time", () => {
@@ -244,6 +254,75 @@ describe("cron after jitter", () => {
 
     const next = await run(t.env, { now: NOW + HOUR, fetch: t.fetchMock, skipIfRanSince: NOW + HOUR });
     expect(next.skipped).toBeUndefined();
+  });
+});
+
+describe("cleanup", () => {
+  const msgKeys = (kv: Map<string, string>) => [...kv.keys()].filter((k) => k.startsWith("msg:"));
+
+  it("deletes a message once its slots are gone", async () => {
+    const t = setup();
+    await t.tick();
+    expect(msgKeys(t.kv)).toEqual(["msg:1"]);
+    await t.clean(NOW + 60_000);
+    expect(t.edits()).toHaveLength(0); // still free, nothing to change
+
+    t.scenario.courts = ["c1"];
+    await t.tick(NOW + HOUR);
+    await t.clean(NOW + HOUR + 60_000);
+    expect(t.edits()).toEqual([{ method: "deleteMessage", body: { chat_id: "1", message_id: 1 } }]);
+    expect(msgKeys(t.kv)).toEqual([]);
+  });
+
+  it("strikes a message through when it is too old to delete", async () => {
+    const t = setup();
+    await t.tick();
+    t.scenario.courts = ["c1"];
+    await t.tick(NOW + 50 * HOUR);
+    await t.clean(NOW + 50 * HOUR + 60_000);
+    const [edit] = t.edits();
+    expect(edit!.method).toBe("editMessageText");
+    expect(edit!.body.text).toContain("<s>CLB An Khanh · T3 10/11</s> · hết sân");
+    expect(edit!.body.text).toContain("Có sân trống mới");
+    expect(msgKeys(t.kv)).toEqual([]);
+  });
+
+  it("updates the courts once, and treats past slots as gone", async () => {
+    const t = setup();
+    await t.tick();
+    t.scenario.courts = ["c1", "c2", "c3"];
+    await t.tick(NOW + HOUR);
+    await t.clean(NOW + HOUR + 60_000);
+    await t.clean(NOW + HOUR + 120_000);
+    expect(t.edits()).toHaveLength(1);
+    expect(t.edits()[0]!.body.text).toContain("3 sân: Court c1, Court c2, Court c3");
+    expect(msgKeys(t.kv)).toEqual(["msg:1"]);
+
+    const afterSlot = Date.parse("2026-11-10T20:30:00+07:00");
+    await t.clean(afterSlot); // older than 48 h by then, so struck through
+    expect(t.edits()[1]!.body.text).toContain("hết sân");
+    expect(msgKeys(t.kv)).toEqual([]);
+  });
+
+  it("forgets a message someone already deleted", async () => {
+    const t = setup();
+    await t.tick();
+    t.scenario.courts = ["c1"];
+    await t.tick(NOW + HOUR);
+    t.fetchMock = (async () => Response.json({ ok: false, description: "Bad Request: message to delete not found" }, { status: 400 })) as Fetch;
+    const log = await cleanup(t.env, { now: NOW + HOUR + 60_000, fetch: t.fetchMock });
+    expect(log[0]).toMatch(/dropped 1/);
+    expect(msgKeys(t.kv)).toEqual([]);
+  });
+
+  it("runs on a cleanup cron instead of a check", async () => {
+    const t = setup();
+    await t.tick();
+    t.env.CONFIG = JSON.stringify({ ...CONFIG, cleanup_crons: ["30 * * * *"] });
+    const pending: Promise<unknown>[] = [];
+    await worker.scheduled({ cron: "30 * * * *", scheduledTime: NOW }, t.env, { waitUntil: (p) => void pending.push(p) });
+    await Promise.all(pending);
+    expect(t.requests.filter((u) => u.includes("alobo")).length).toBe(3); // only the first check
   });
 });
 

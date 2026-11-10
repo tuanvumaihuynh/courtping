@@ -47,6 +47,7 @@ resource "cloudflare_workers_script" "bot" {
         preferred_start = var.preferred_start
         jitter_minutes  = var.jitter_minutes
         crons           = var.crons
+        cleanup_crons   = var.cleanup_crons
       })
     },
     { name = "ALOBO_RUNTIME", type = "secret_text", text = jsonencode(var.alobo_runtime) },
@@ -62,7 +63,14 @@ resource "cloudflare_workers_script" "bot" {
 resource "cloudflare_workers_cron_trigger" "bot" {
   account_id  = var.cloudflare_account_id
   script_name = cloudflare_workers_script.bot.script_name
-  schedules   = [for c in var.crons : { cron = c }]
+  schedules   = [for c in concat(var.crons, var.cleanup_crons) : { cron = c }]
+
+  lifecycle {
+    precondition {
+      condition     = length(setintersection(var.crons, var.cleanup_crons)) == 0
+      error_message = "cleanup_crons must not repeat an expression from crons."
+    }
+  }
 }
 
 # Exposes https://<name>.<account-subdomain>.workers.dev for /run (RUN_TOKEN) and /telegram (webhook secret).

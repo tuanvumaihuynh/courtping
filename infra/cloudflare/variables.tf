@@ -82,6 +82,12 @@ variable "crons" {
   default     = ["*/30 0-16 * * *"]
 }
 
+variable "cleanup_crons" {
+  type        = list(string)
+  description = "Cron expressions in UTC that edit or delete slot messages whose slots are gone. Must differ from crons; [] disables it."
+  default     = ["15 0-16 * * *"]
+}
+
 variable "enable_http_trigger" {
   type        = bool
   default     = true

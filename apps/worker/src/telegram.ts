@@ -17,81 +17,141 @@ const HINTS: Record<string, string> = {
 export const escapeHtml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+/** Call a Bot API method; returns its `result`. */
+export async function telegramCall<T = unknown>(
+  env: Pick<Env, "TELEGRAM_BOT_TOKEN">,
+  method: string,
+  params: Record<string, unknown>,
+  fetchFn: typeof fetch = fetch,
+): Promise<T> {
+  const res = await fetchFn(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  const body = (await res.json().catch(() => ({}))) as { ok?: boolean; description?: string; result?: T };
+  if (!res.ok || !body.ok) throw new AppError("telegram_error", `Telegram ${res.status}: ${body.description ?? ""}`);
+  return body.result as T;
+}
+
+/** Send to the group; returns the new message's id. */
 export async function sendTelegram(
   env: Pick<Env, "TELEGRAM_BOT_TOKEN" | "TELEGRAM_CHAT_ID">,
   text: string,
   fetchFn: typeof fetch = fetch,
   replyTo?: number,
-): Promise<void> {
-  const res = await fetchFn(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
+): Promise<number> {
+  const message = await telegramCall<{ message_id: number }>(
+    env,
+    "sendMessage",
+    {
       chat_id: env.TELEGRAM_CHAT_ID,
       text,
       parse_mode: "HTML",
       disable_web_page_preview: true,
       ...(replyTo === undefined ? {} : { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } }),
-    }),
-  });
-  const body = (await res.json().catch(() => ({}))) as { ok?: boolean; description?: string };
-  if (!res.ok || !body.ok) throw new AppError("telegram_error", `Telegram ${res.status}: ${body.description ?? ""}`);
+    },
+    fetchFn,
+  );
+  return message?.message_id;
 }
 
 const startsAt = (m: Match, time: string | null | undefined) => time != null && hhmm(m.start) === time;
 
-/** One block per venue and day, listing every newly free window. Windows at `preferredStart` are highlighted. */
-export function formatVenueDay(matches: Match[], preferredStart?: string | null): string {
+/** Returns the slot as it is free now (courts may have changed), or null once it is gone. */
+export type CurrentSlot = (m: Match) => Match | null;
+
+/**
+ * One block per venue and day, listing every newly free window. Windows at `preferredStart` are highlighted.
+ * With `current`, windows that are gone are struck through, and a block whose windows are all gone shrinks to one line.
+ */
+export function formatVenueDay(matches: Match[], preferredStart?: string | null, current?: CurrentSlot): string {
   const sorted = [...matches].sort((a, b) => a.start - b.start);
   const { venue, start } = sorted[0]!;
-  const lines = [`🏸 <b>${escapeHtml(venue.name)}</b> · ${WEEKDAY_NAMES[weekday(start)]} ${ddmm(start)}`];
-  for (const m of sorted) {
-    const line = `${hhmm(m.start)}–${hhmm(m.end)} · ${m.courts.length} sân: ${escapeHtml(m.courts.join(", "))}`;
+  const name = escapeHtml(venue.name);
+  const day = `${WEEKDAY_NAMES[weekday(start)]} ${ddmm(start)}`;
+  const now = sorted.map((m) => (current ? current(m) : m));
+  if (now.every((m) => m === null)) return `🏸 <s>${name} · ${day}</s> · hết sân`;
+  const lines = [`🏸 <b>${name}</b> · ${day}`];
+  sorted.forEach((m, i) => {
+    const time = `${hhmm(m.start)}–${hhmm(m.end)}`;
+    const live = now[i];
+    if (!live) return void lines.push(`<s>${time}</s> · hết sân`);
+    const line = `${time} · ${live.courts.length} sân: ${escapeHtml(live.courts.join(", "))}`;
     lines.push(startsAt(m, preferredStart) ? `⭐ <b>${line}</b>` : line);
-  }
+  });
   if (venue.address) lines.push(escapeHtml(venue.address));
   lines.push(`<a href="${bookingUrl(venue.id)}">Đặt trên Alobo</a>`);
   return lines.join("\n");
+}
+
+/** A block of a slot message: one venue-day, optionally under a section heading. */
+export interface SlotBlock {
+  heading: string | null;
+  matches: Match[];
+}
+
+/** What a slot message was built from, so it can be rendered again once slots are gone. */
+export interface SlotMessage {
+  header: string | null;
+  preferredStart: string | null;
+  blocks: SlotBlock[];
 }
 
 /**
  * Messages for newly free slots, one block per venue and day (`groups` in day order).
  * With `preferredStart`, venue-days that have a window starting then come first under their own heading.
  */
+export function newSlotMessages(groups: Match[][], checkedAt: number, preferredStart?: string | null): SlotMessage[] {
+  const header = `<b>Có sân trống mới</b> (check lúc ${hhmm(checkedAt)} ${ddmm(checkedAt)})`;
+  return pages(slotBlocks(groups, preferredStart)).map((blocks, i) => ({
+    header: i === 0 ? header : null,
+    preferredStart: preferredStart ?? null,
+    blocks,
+  }));
+}
+
+export function renderSlotMessage(message: SlotMessage, current?: CurrentSlot): string {
+  const parts = message.blocks.map((b) => {
+    const block = formatVenueDay(b.matches, message.preferredStart, current);
+    return b.heading ? `${b.heading}\n\n${block}` : block;
+  });
+  if (message.header) parts.unshift(message.header);
+  return parts.join("\n\n");
+}
+
 export function formatNewSlots(groups: Match[][], checkedAt: number, preferredStart?: string | null): string[] {
-  return paginate(slotBlocks(groups, preferredStart), `<b>Có sân trống mới</b> (check lúc ${hhmm(checkedAt)} ${ddmm(checkedAt)})`);
+  return newSlotMessages(groups, checkedAt, preferredStart).map((m) => renderSlotMessage(m));
+}
+
+function pages<T>(items: T[]): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += BLOCKS_PER_MESSAGE) out.push(items.slice(i, i + BLOCKS_PER_MESSAGE));
+  return out;
 }
 
 function paginate(blocks: string[], header: string, footer?: string): string[] {
-  const messages: string[] = [];
-  for (let i = 0; i < blocks.length; i += BLOCKS_PER_MESSAGE) {
-    const parts = blocks.slice(i, i + BLOCKS_PER_MESSAGE);
-    if (i === 0) parts.unshift(header);
-    if (footer && i + BLOCKS_PER_MESSAGE >= blocks.length) parts.push(footer);
-    messages.push(parts.join("\n\n"));
-  }
-  return messages;
+  return pages(blocks).map((parts, i, all) =>
+    [...(i === 0 ? [header] : []), ...parts, ...(footer && i === all.length - 1 ? [footer] : [])].join("\n\n"),
+  );
 }
 
-/** Blocks for venue-days, those with a window at `preferredStart` first under their own heading. */
-function slotBlocks(groups: Match[][], preferredStart?: string | null): string[] {
+/** Venue-days, those with a window at `preferredStart` first under their own heading. */
+function slotBlocks(groups: Match[][], preferredStart?: string | null): SlotBlock[] {
   const preferred = groups.filter((g) => g.some((m) => startsAt(m, preferredStart)));
   const others = groups.filter((g) => !preferred.includes(g));
-
-  const blocks: string[] = [];
-  const addSection = (heading: string | null, section: Match[][]) =>
-    section.forEach((g, i) => {
-      const block = formatVenueDay(g, preferredStart);
-      blocks.push(i === 0 && heading ? `${heading}\n\n${block}` : block);
-    });
-  if (preferred.length) {
-    addSection(`⭐ <b>Có slot ${preferredStart}</b>`, preferred);
-    addSection("<b>Giờ khác</b>", others);
-  } else {
-    addSection(null, others);
-  }
-  return blocks;
+  const section = (heading: string | null, section: Match[][]) =>
+    section.map((matches, i) => ({ heading: i === 0 ? heading : null, matches }));
+  return preferred.length
+    ? [...section(`⭐ <b>Có slot ${preferredStart}</b>`, preferred), ...section("<b>Giờ khác</b>", others)]
+    : section(null, others);
 }
+
+const renderBlocks = (blocks: SlotBlock[], preferredStart?: string | null): string[] =>
+  blocks.map((b) => {
+    const block = formatVenueDay(b.matches, preferredStart);
+    return b.heading ? `${b.heading}\n\n${block}` : block;
+  });
 
 export function formatError(code: string, message: string, pausedUntil: number | null): string {
   const lines = [`⚠️ <b>Bot báo sân bị lỗi</b>: <code>${escapeHtml(code)}</code>`];
@@ -172,7 +232,7 @@ export function formatSlots(
   }
   const groups = [...byGroup.keys()].sort().map((k) => byGroup.get(k)!);
   const header = time ? `⭐ <b>Slot ${time} còn trống</b> · ${updated(checkedAt)}` : `<b>Slot còn trống</b> · ${updated(checkedAt)}`;
-  const blocks = time ? groups.map((g) => formatVenueDay(g, time)) : slotBlocks(groups, preferredStart);
+  const blocks = time ? groups.map((g) => formatVenueDay(g, time)) : renderBlocks(slotBlocks(groups, preferredStart), preferredStart);
   return paginate(blocks, header, time ? "Gõ /slots all để xem mọi giờ." : undefined);
 }
 

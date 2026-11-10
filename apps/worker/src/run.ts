@@ -7,9 +7,9 @@ import {
   resolveVenue,
 } from "@courtping/alobo";
 import { AppError } from "./errors.ts";
-import { formatError, formatNewSlots, formatRecovered, sendTelegram } from "./telegram.ts";
+import { formatError, formatRecovered, newSlotMessages, renderSlotMessage, sendTelegram } from "./telegram.ts";
 import { isoDay, upcomingDates, windowsFor } from "./time.ts";
-import type { Config, Env, Match, State } from "./types.ts";
+import type { Config, Env, Match, SentMessage, State } from "./types.ts";
 
 /** The free plan allows 50 subrequests per invocation; leave room for version.json and Telegram. */
 export const MAX_WINDOWS = 40;
@@ -19,6 +19,10 @@ const DEFAULT_BACKOFF_HOURS = 1;
 /** Shortest pause after a 429 whose reset time Alobo told us, so a busy window is not hit again at once. */
 const MIN_RATE_LIMIT_PAUSE_MS = 5 * 60_000;
 export const STATE_KEY = "state";
+/** Slot messages are kept under `msg:<message_id>`; written once here, then only by `cleanup`. */
+export const MESSAGE_PREFIX = "msg:";
+/** Keep a message record this long after its last slot ends, in case cleanup did not run. */
+const MESSAGE_TTL_S = 2 * 86_400;
 
 export interface RunOptions {
   /** Log messages instead of sending them, and do not persist state. */
@@ -142,7 +146,16 @@ export async function run(env: Env, opts: RunOptions = {}): Promise<RunResult> {
     state.seen = Object.fromEntries(Object.entries(state.seen).filter(([key]) => current.has(key)));
 
     const groups = [...fresh.keys()].sort().map((group) => fresh.get(group)!);
-    for (const message of formatNewSlots(groups, now, config.preferred_start)) await notify(message);
+    for (const message of newSlotMessages(groups, now, config.preferred_start)) {
+      const text = renderSlotMessage(message);
+      log.push(text);
+      if (opts.dryRun) continue;
+      const id = await sendTelegram(env, text, fetchFn);
+      if (typeof id !== "number") continue;
+      const lastEnd = Math.max(...message.blocks.flatMap((b) => b.matches.map((m) => m.end)));
+      const record: SentMessage = { ...message, sentAt: now, text, expiration: Math.floor(lastEnd / 1000) + MESSAGE_TTL_S };
+      await env.STATE.put(`${MESSAGE_PREFIX}${id}`, JSON.stringify(record), { expiration: record.expiration });
+    }
 
     if (state.error) {
       await notify(formatRecovered(state.error.code));

@@ -5,7 +5,8 @@ It runs as a Cloudflare Worker on a cron; infrastructure is OpenTofu.
 
 ## Layout
 
-- `apps/worker`: the Worker. `src/run.ts` is one check; `src/commands.ts` answers group commands from KV;
+- `apps/worker`: the Worker. `src/run.ts` is one check; `src/cleanup.ts` edits or deletes posted messages whose
+  slots are gone; `src/commands.ts` answers group commands from KV;
   `src/telegram.ts` holds all user-facing text; `scripts/local.ts` runs the same code on a laptop;
   `scripts/telegram-webhook.ts` registers the webhook and command menu on deploy.
 - `packages/alobo`: Alobo client (request signing, response decryption, catalog, courts, availability),
